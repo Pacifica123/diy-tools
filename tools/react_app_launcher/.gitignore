@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.log
+profiles.json
+profiles.encrypted.json
+apps.local.json

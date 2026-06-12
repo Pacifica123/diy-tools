@@ -9,5 +9,6 @@ contextBridge.exposeInMainWorld('launcherApi', {
   revealItem: (profileId, itemId) => ipcRenderer.invoke('item:reveal', profileId, itemId),
   choosePath: (kind) => ipcRenderer.invoke('dialog:choose-path', kind),
   revealConfig: () => ipcRenderer.invoke('config:reveal'),
-  getConfigPath: () => ipcRenderer.invoke('config:path')
+  getConfigPath: () => ipcRenderer.invoke('config:path'),
+  getConfigInfo: () => ipcRenderer.invoke('config:info')
 });

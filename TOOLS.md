@@ -8,7 +8,7 @@
 | logheaderparser | Потоковый парсер шаблонов логов | logs | M2 | S,P | cli/json_report | Win expected / Linux expected | no | no | tools/logheaderparser | python scripts/smoke_test.py |
 | zapret_strategy_extractor | Извлекатель zapret-стратегий | logs | M2 | S,G,P | cli/generated_files | Win expected / Linux expected | no | no | tools/zapret_strategy_extractor | python scripts/smoke_test.py |
 | video_converter | Конвертер MKV в MP4 | media | M2 | D,P | cli/json_report | Win expected / Linux expected | no | yes | tools/video_converter | python scripts/smoke_test.py |
-| react_app_launcher | Лаунчер приложений и профилей | desktop | M2 | O,P | gui/user_config_json | Win expected / Linux unknown | possible user URLs | no | tools/react_app_launcher | node scripts/smoke_test.js |
+| react_app_launcher | StartDeck — лаунчер профилей запуска | desktop | M2 | O,P | gui/user_config_json | Win expected / Linux unknown | possible user URLs | no | tools/react_app_launcher | node scripts/smoke_test.js |
 
 ## Легенда зрелости
 

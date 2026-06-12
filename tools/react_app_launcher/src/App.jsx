@@ -56,6 +56,39 @@ function defaultItem(profileId) {
   };
 }
 
+function createSafeExampleProfile() {
+  return {
+    id: slug('example-profile'),
+    name: 'Пример без личных данных',
+    description: 'Шаблон с отключёнными элементами. Замени пути на свои.',
+    items: [
+      {
+        id: slug('example-app'),
+        name: 'Программа — пример',
+        type: 'app',
+        path: 'C:\\Path\\To\\Program.exe',
+        enabled: false,
+        skipIfRunning: true,
+        processName: 'Program.exe'
+      },
+      {
+        id: slug('example-folder'),
+        name: 'Папка — пример',
+        type: 'folder',
+        path: '%USERPROFILE%\\Path\\To\\Folder',
+        enabled: false
+      },
+      {
+        id: slug('example-site'),
+        name: 'Сайт — пример',
+        type: 'url',
+        url: 'https://example.com',
+        enabled: false
+      }
+    ]
+  };
+}
+
 function safeItems(profile) {
   return Array.isArray(profile?.items) ? profile.items : [];
 }
@@ -247,6 +280,7 @@ export default function App() {
   const [jsonText, setJsonText] = useState('[]');
   const [modal, setModal] = useState(null);
   const [configPath, setConfigPath] = useState('');
+  const [configInfo, setConfigInfo] = useState(null);
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedId) || profiles[0],
@@ -291,10 +325,12 @@ export default function App() {
       const loaded = await api.getProfiles();
       const checked = await api.validateProfiles();
       const path = await api.getConfigPath();
+      const info = api.getConfigInfo ? await api.getConfigInfo() : { path, encrypted: false };
       setProfiles(loaded);
       setStatuses(checked);
       setJsonText(toPrettyJson(loaded));
       setConfigPath(path);
+      setConfigInfo(info);
       if (nextSelectedId) setSelectedId(nextSelectedId);
       else if (!selectedId && loaded[0]) setSelectedId(loaded[0].id);
     } catch (error) {
@@ -364,6 +400,11 @@ export default function App() {
 
   function openCreateProfile() {
     setModal({ kind: 'profile', mode: 'create', data: { id: slug('profile'), name: 'Новый профиль', description: '', items: [] } });
+  }
+
+  function addSafeExampleProfile() {
+    const example = createSafeExampleProfile();
+    save([...profiles, example], 'Добавлен безопасный пример', example.id);
   }
 
   function saveProfile(profileDraft) {
@@ -453,8 +494,8 @@ export default function App() {
         <div className="brand">
           <div className="brand-mark">▶</div>
           <div>
-            <h1>App Launcher</h1>
-            <p>Запуск наборов программ</p>
+            <h1>StartDeck</h1>
+            <p>Профили запуска</p>
           </div>
         </div>
 
@@ -477,6 +518,7 @@ export default function App() {
 
         <div className="side-actions">
           <button className="ghost" onClick={openCreateProfile}>+ Профиль</button>
+          <button className="ghost" onClick={addSafeExampleProfile}>+ Пример</button>
           <button className="ghost" onClick={() => refresh(selectedProfile?.id)}>Обновить</button>
           <button className="ghost" onClick={() => api.revealConfig()}>Открыть конфиг</button>
         </div>
@@ -513,7 +555,7 @@ export default function App() {
             <span>Проблем с путями</span>
           </article>
           <article className="summary-card path-card" title={configPath}>
-            <strong>apps.json</strong>
+            <strong>{configInfo?.encrypted ? 'encrypted' : 'json'}</strong>
             <span>{configPath || 'Конфиг ещё не загружен'}</span>
           </article>
         </section>
@@ -536,6 +578,7 @@ export default function App() {
             <div className="empty-state">
               <h3>Здесь пока пусто</h3>
               <p>Добавь программу, папку или сайт. Потом весь профиль будет запускаться одной кнопкой.</p>
+              <button className="ghost" onClick={addSafeExampleProfile}>Добавить безопасный пример</button>
             </div>
           ) : filteredItems.map((item) => {
             const status = statusMap.get(item.id);
@@ -606,6 +649,7 @@ export default function App() {
               <li>Отключай редкие программы тумблером — они останутся в профиле.</li>
               <li>Кнопка “Выбрать” сама подставляет путь к `.exe` или папке.</li>
               <li>“Не запускать повторно” помогает не плодить Discord, Steam и лаунчеры.</li>
+              <li>{configInfo?.encrypted ? 'Конфиг хранится зашифрованно в профиле Windows.' : 'Если шифрование недоступно, конфиг сохраняется обычным JSON.'}</li>
             </ul>
             {jsonOpen && (
               <div className="json-editor">

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Menu, safeStorage } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn, execFile } = require('node:child_process');
@@ -7,8 +7,29 @@ const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const rootDir = app.getAppPath();
 const bundledConfigPath = path.join(rootDir, 'data', 'apps.json');
 
+function isEncryptionAvailable() {
+  try {
+    return Boolean(safeStorage?.isEncryptionAvailable?.());
+  } catch (_error) {
+    return false;
+  }
+}
+
 function getUserConfigPath() {
+  const fileName = isEncryptionAvailable() ? 'profiles.encrypted.json' : 'profiles.json';
+  return path.join(app.getPath('userData'), fileName);
+}
+
+function getLegacyConfigPath() {
   return path.join(app.getPath('userData'), 'apps.json');
+}
+
+function getPossibleLegacyConfigPaths() {
+  return [
+    getLegacyConfigPath(),
+    path.join(app.getPath('appData'), 'App Launcher', 'apps.json'),
+    path.join(app.getPath('appData'), 'react-app-launcher', 'apps.json')
+  ];
 }
 
 function createWindow() {
@@ -17,7 +38,7 @@ function createWindow() {
     height: 780,
     minWidth: 960,
     minHeight: 620,
-    title: 'App Launcher',
+    title: 'StartDeck',
     backgroundColor: '#0d1117',
     autoHideMenuBar: true,
     webPreferences: {
@@ -39,28 +60,76 @@ function defaultConfig() {
   return { profiles: [] };
 }
 
+function normalizeConfigShape(data) {
+  const normalized = Array.isArray(data) ? { profiles: data } : data;
+  if (!normalized || !Array.isArray(normalized.profiles)) {
+    throw new Error('Конфиг должен быть объектом вида: { \"profiles\": [] }');
+  }
+  return normalized;
+}
+
+function encryptConfigPayload(data) {
+  const raw = JSON.stringify(normalizeConfigShape(data), null, 2);
+  if (!isEncryptionAvailable()) return raw;
+
+  const encryptedBuffer = safeStorage.encryptString(raw);
+  return JSON.stringify({
+    format: 'startdeck.encrypted-config.v1',
+    encrypted: true,
+    payload: encryptedBuffer.toString('base64')
+  }, null, 2);
+}
+
+function decryptConfigPayload(raw) {
+  const parsed = JSON.parse(raw);
+  if (!parsed?.encrypted) return normalizeConfigShape(parsed);
+  if (!parsed.payload) throw new Error('В зашифрованном конфиге отсутствует payload');
+
+  if (!isEncryptionAvailable()) {
+    throw new Error('Система сейчас не дала доступ к расшифровке конфига');
+  }
+
+  const decrypted = safeStorage.decryptString(Buffer.from(parsed.payload, 'base64'));
+  return normalizeConfigShape(JSON.parse(decrypted));
+}
+
+function writeConfig(data) {
+  const userConfigPath = getUserConfigPath();
+  const dir = path.dirname(userConfigPath);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(userConfigPath, encryptConfigPayload(data), 'utf8');
+}
+
+function readPlainConfigFile(configPath) {
+  const raw = fs.readFileSync(configPath, 'utf8');
+  return normalizeConfigShape(JSON.parse(raw));
+}
+
 function ensureConfig() {
   const userConfigPath = getUserConfigPath();
   const dir = path.dirname(userConfigPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   if (fs.existsSync(userConfigPath)) return;
 
-  if (fs.existsSync(bundledConfigPath)) {
-    fs.copyFileSync(bundledConfigPath, userConfigPath);
+  const legacyPath = getPossibleLegacyConfigPaths().find((candidate) => fs.existsSync(candidate));
+  if (legacyPath) {
+    writeConfig(readPlainConfigFile(legacyPath));
     return;
   }
-  fs.writeFileSync(userConfigPath, JSON.stringify(defaultConfig(), null, 2), 'utf8');
+
+  if (fs.existsSync(bundledConfigPath)) {
+    writeConfig(readPlainConfigFile(bundledConfigPath));
+    return;
+  }
+
+  writeConfig(defaultConfig());
 }
 
 function readConfig() {
   ensureConfig();
   const userConfigPath = getUserConfigPath();
   const raw = fs.readFileSync(userConfigPath, 'utf8');
-  const data = JSON.parse(raw);
-  if (!data || !Array.isArray(data.profiles)) {
-    throw new Error('В apps.json должен быть объект вида: { "profiles": [] }');
-  }
-  return data;
+  return decryptConfigPayload(raw);
 }
 
 function readProfiles() {
@@ -71,9 +140,7 @@ function saveProfiles(profiles) {
   if (!Array.isArray(profiles)) {
     throw new Error('profiles должен быть массивом');
   }
-  ensureConfig();
-  const userConfigPath = getUserConfigPath();
-  fs.writeFileSync(userConfigPath, JSON.stringify({ profiles }, null, 2), 'utf8');
+  writeConfig({ profiles });
   return profiles;
 }
 
@@ -116,11 +183,7 @@ function getItemStatus(item) {
 
   const target = getTarget(item);
   if (!target) return { ok: false, kind: item.type || 'app', issue: 'Не указан путь' };
-  if (item.type === 'command') {
-    return target
-      ? { ok: true, kind: 'command', issue: item.allowShell ? 'Команда будет запущена через shell' : '' }
-      : { ok: false, kind: 'command', issue: 'Не указана команда или исполняемый файл' };
-  }
+  if (item.type === 'command') return { ok: true, kind: 'command', issue: '' };
   if (!fs.existsSync(target)) {
     return { ok: false, kind: item.type || 'app', issue: `Не найдено: ${target}` };
   }
@@ -193,9 +256,6 @@ async function launch(item) {
   const exists = fs.existsSync(target);
   if (!exists && item.type !== 'command') {
     throw new Error(`Файл или папка не найдены: ${target}`);
-  }
-  if (item.type === 'command' && item.allowShell !== true && !exists) {
-    throw new Error('Для command без allowShell нужен существующий исполняемый файл. Для raw shell-команды явно добавьте allowShell: true в JSON.');
   }
 
   if (item.type === 'folder' || (exists && fs.statSync(target).isDirectory())) {
@@ -298,6 +358,16 @@ ipcMain.handle('config:reveal', async () => {
 ipcMain.handle('config:path', () => {
   ensureConfig();
   return getUserConfigPath();
+});
+
+ipcMain.handle('config:info', () => {
+  ensureConfig();
+  return {
+    path: getUserConfigPath(),
+    encrypted: isEncryptionAvailable(),
+    legacyPath: getLegacyConfigPath(),
+    legacyPaths: getPossibleLegacyConfigPaths()
+  };
 });
 
 app.whenReady().then(() => {

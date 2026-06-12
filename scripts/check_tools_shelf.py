@@ -43,10 +43,14 @@ def parse_tool_ini(path: Path) -> configparser.ConfigParser:
 
 
 def iter_patch_owned_paths():
-    """Yield paths owned by this shelf patch, not the host repository metadata.
+    """Yield source payload paths while pruning generated/cache directories.
 
-    The check may run inside a real git checkout, so scanning ROOT.rglob("*")
-    would incorrectly fail on the existing project/.git directory.
+    The check may run in a developer checkout where ignored build output already
+    exists, for example a Rust ``target/`` directory left by a smoke test.  Those
+    directories are not patch payload and devctl intentionally does not allow a
+    patch manifest to delete banned paths.  Therefore the traversal validates the
+    source shelf and skips generated/cache subtrees instead of treating local
+    workspace dirt as a patch failure.
     """
     roots = [TOOLS, ROOT / "TOOLS.md", ROOT / "scripts" / "check_tools_shelf.py"]
     for root in roots:
@@ -55,8 +59,11 @@ def iter_patch_owned_paths():
         if root.is_file():
             yield root
             continue
-        for path in root.rglob("*"):
-            yield path
+        for current, dirnames, filenames in os.walk(root):
+            dirnames[:] = [name for name in dirnames if name not in BANNED_PARTS]
+            current_path = Path(current)
+            for filename in filenames:
+                yield current_path / filename
 
 
 def check_banned_payload() -> None:
@@ -68,8 +75,16 @@ def check_banned_payload() -> None:
             fail(f"banned bytecode in payload: {rel.as_posix()}")
 
 
+def iter_tool_source_files():
+    for current, dirnames, filenames in os.walk(TOOLS):
+        dirnames[:] = [name for name in dirnames if name not in BANNED_PARTS]
+        current_path = Path(current)
+        for filename in filenames:
+            yield current_path / filename
+
+
 def check_personal_paths() -> None:
-    for path in TOOLS.rglob("*"):
+    for path in iter_tool_source_files():
         if not path.is_file() or path.suffix.lower() in {".ico", ".png", ".jpg", ".jpeg"}:
             continue
         try:
