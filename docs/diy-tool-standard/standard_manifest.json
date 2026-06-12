@@ -1,0 +1,62 @@
+{
+  "standardId": "diy-tool-standard",
+  "version": "0.1.1-devctl",
+  "createdAt": "2026-06-12T10:30:00Z",
+  "status": "first_applicable_standard",
+  "difficulty": 7,
+  "scope": [
+    "python",
+    "rust",
+    "node-electron",
+    "cli",
+    "gui",
+    "apk",
+    "local-tools",
+    "devctl-patches"
+  ],
+  "coreFiles": [
+    "README.md",
+    "STANDARD.md",
+    "DEVCTL_PATCH_PROTOCOL.md",
+    "SOURCE_TOOL_AUDIT.md",
+    "_templates/README.template.md",
+    "_templates/tool.ini.template",
+    "_templates/TOOLS.template.md",
+    "_templates/VIBE_CODING_PROMPT.template.md",
+    "_templates/PATCH_SUMMARY.template.md",
+    "_templates/ACCEPTANCE_CHECKLIST.md"
+  ],
+  "maturityLevels": [
+    "M0",
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+  ],
+  "behaviorFlags": [
+    "D",
+    "P",
+    "N",
+    "O",
+    "S",
+    "G",
+    "I",
+    "A",
+    "W"
+  ],
+  "sourceInputs": [
+    "DIY_TOOL_STANDARD_META_v0_2.md",
+    "devctl_project.zip",
+    "random_wheel_app.zip",
+    "anime_rerank_tournament.zip",
+    "logheaderparser.zip",
+    "zapret_strategy_extractor.zip",
+    "react-app-launcher-v2.2-blank-window-fix.zip",
+    "video_converter.py",
+    "red_axis_gen1.zip"
+  ],
+  "patch_id": "2026-06-12-diy-tool-standard-v0-1-1",
+  "notes": [
+    "v0.1.1 fixes devctl machine-check anchors without changing methodology semantics."
+  ]
+}

@@ -1,0 +1,75 @@
+[tool]
+id = example_tool
+name_ru = Пример инструмента
+name_en = Example Tool
+version = 0.1.0
+status = draft
+category = misc
+language = python
+maturity = M1
+flags = none
+short_ru = Одной фразой: что делает инструмент.
+
+[philosophy]
+diy = true
+copyable_capsule = true
+modifiable = true
+rewrite_friendly = true
+standard_version = 0.1-devctl
+
+[interfaces]
+core = planned
+api = no
+abi = simple_files
+cli = yes
+gui = no
+apk = no
+web_localhost = no
+primary = cli
+secondary = none
+
+[support]
+windows = expected
+linux = expected
+android_apk = unsupported
+android_termux = unknown
+macos = unsupported
+
+[run]
+windows = run.bat
+linux = ./run.sh
+cli = python src/cli.py --help
+gui = none
+api = none
+
+[deps]
+python = >=3.11
+pip = none
+external = none
+node = none
+rust = none
+
+[safety]
+dangerous = false
+network = false
+overwrites_files = false
+deletes_files = false
+runs_external_commands = false
+handles_private_files = possible
+dry_run = planned
+backup = not_needed
+report = stdout
+
+[data]
+input_contract = README.md#вход
+output_contract = README.md#выход
+state_dir = none
+config_location = capsule
+logs_contain_private_data = possible
+
+[checks]
+smoke = none
+manual = Запустить быстрый пример из README.
+
+[notes]
+short = Что важно помнить будущему автору.
