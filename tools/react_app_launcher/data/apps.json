@@ -1,0 +1,99 @@
+{
+  "profiles": [
+    {
+      "id": "work",
+      "name": "Работа / разработка",
+      "description": "Браузер, редактор кода, папка проектов и GitHub.",
+      "items": [
+        {
+          "id": "chrome",
+          "name": "Google Chrome",
+          "type": "app",
+          "path": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+          "enabled": true,
+          "skipIfRunning": true,
+          "processName": "chrome.exe"
+        },
+        {
+          "id": "vscode",
+          "name": "Visual Studio Code",
+          "type": "app",
+          "path": "%LOCALAPPDATA%\\Programs\\Microsoft VS Code\\Code.exe",
+          "enabled": true,
+          "skipIfRunning": true,
+          "processName": "Code.exe"
+        },
+        {
+          "id": "projects",
+          "name": "Папка проектов",
+          "type": "folder",
+          "path": "%USERPROFILE%\\Desktop\\projects",
+          "enabled": true
+        },
+        {
+          "id": "github",
+          "name": "GitHub",
+          "type": "url",
+          "url": "https://github.com/",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "games",
+      "name": "Игры",
+      "description": "Steam, Discord и игровые утилиты.",
+      "items": [
+        {
+          "id": "steam",
+          "name": "Steam",
+          "type": "app",
+          "path": "C:\\Program Files (x86)\\Steam\\steam.exe",
+          "enabled": true,
+          "skipIfRunning": true,
+          "processName": "steam.exe"
+        },
+        {
+          "id": "discord",
+          "name": "Discord",
+          "type": "app",
+          "path": "%LOCALAPPDATA%\\Discord\\Update.exe",
+          "args": ["--processStart", "Discord.exe"],
+          "enabled": true,
+          "skipIfRunning": true,
+          "processName": "Discord.exe"
+        }
+      ]
+    },
+    {
+      "id": "study",
+      "name": "Учёба / диплом",
+      "description": "Документы, Word и быстрые ссылки для учёбы.",
+      "items": [
+        {
+          "id": "documents",
+          "name": "Документы",
+          "type": "folder",
+          "path": "%USERPROFILE%\\Documents",
+          "enabled": true
+        },
+        {
+          "id": "word-placeholder",
+          "name": "Microsoft Word — пример",
+          "type": "app",
+          "path": "C:\\Program Files\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+          "enabled": false,
+          "skipIfRunning": true,
+          "processName": "WINWORD.EXE"
+        },
+        {
+          "id": "kuzgtu",
+          "name": "КузГТУ",
+          "type": "url",
+          "url": "https://kuzstu.ru/",
+          "enabled": false
+        }
+      ]
+    }
+  ]
+}

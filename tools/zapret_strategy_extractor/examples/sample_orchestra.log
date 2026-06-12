@@ -1,0 +1,10 @@
+profile 7 (noname) lua desync_fake(split="2",seqovl="1") range_in=0-0 range_out=0-0 payload_type=all
+hostname: example.org
+circular_quality: current strategy 12
+LUA: slm_quality: LOCK [tcp] example.org -> strat=12 (rtt=110)
+LUA: slm_quality: [tcp] example.org strat=12 SUCCESS
+profile 8 (noname) lua desync_fake(split="3",seqovl="2") range_in=0-0 range_out=0-0 payload_type=all
+hostname: video.example.net
+circular_quality: current strategy 13
+LUA: slm_quality: LOCK [udp] video.example.net -> strat=13 (rtt=90)
+LUA: slm_quality: [udp] video.example.net strat=13 FAILED

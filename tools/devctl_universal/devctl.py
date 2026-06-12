@@ -1,0 +1,4614 @@
+#!/usr/bin/env python3
+"""
+devctl v0.6.6 — проектно-независимый конвейер применения ИИ-патчей на чистом Python.
+
+Базовый поток конвейера: применить патч -> выполнить проверки -> создать коммит -> отправить в remote.
+
+Команды:
+    python tools/devctl.py init --project ./project
+    python tools/devctl.py status
+    python tools/devctl.py inspect
+    python tools/devctl.py plan
+    python tools/devctl.py start
+    python tools/devctl.py reset
+
+Инструмент намеренно использует только стандартную библиотеку Python.
+"""
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import zipfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable
+
+DEVCTL_VERSION = "0.6.7"
+STATE_VERSION = 1
+DEFAULT_PROJECT_DIR_NAME = "project"
+DEFAULT_PATCHES_DIR_NAME = "patches"
+DEFAULT_ARCHIVES_DIR_NAME = "archives"
+DEFAULT_UTS_DIR_NAME = "UserTestSpace"
+DEVCTL_WORKSPACE_ENV = "DEVCTL_WORKSPACE"
+DEVCTL_COMMAND_NAME = "devctl"
+LEGACY_ARCHIVES_DIR_ALIASES = ("arhives",)
+PATCH_FILENAME_RE = re.compile(r"patch_(\d{8})_(\d{6})(?:_.*)?\.zip$", re.IGNORECASE)
+
+BANNED_PATH_PARTS = {".git", ".devctl", "target", "node_modules"}
+ARCHIVE_EXCLUDED_PARTS = {
+    ".git",
+    "target",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    "logs",
+    "tmp",
+    "patches",
+    "archives",
+    "arhives",
+    "UserTestSpace",
+    "__pycache__",
+}
+ARCHIVE_EXCLUDED_SUFFIXES = (".db", ".sqlite", ".sqlite3")
+ARCHIVE_INCLUDED_PATHS = {
+    "build/pyinstaller.spec",
+}
+WORKSPACE_ARCHIVE_REQUIRED_EXCLUDES = [
+    "UserTestSpace",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "*.pyc",
+    "*.pyo",
+]
+RELEASE_DIR_NAME = "release"
+RELEASE_ARCHIVE_PAYLOAD_SUFFIXES = (".zip",)
+RELEASE_EXECUTABLE_PAYLOAD_SUFFIXES = (".exe",)
+RELEASE_ZIP_PLACEHOLDER = "тут_был_zip_архив.txt"
+RELEASE_EXE_PLACEHOLDER = "тут_был_экзешник.txt"
+ARCHIVE_SIZE_WARNING_BYTES = 100 * 1024 * 1024
+DANGEROUS_GIT_PATH_SUFFIXES = ARCHIVE_EXCLUDED_SUFFIXES + (".pyc", ".pyo")
+DANGEROUS_GIT_PATH_PARTS = {"node_modules", "target", ".git", "__pycache__", "patches", "archives", "arhives", "UserTestSpace"}
+PYTHON_BYTECODE_DIR_NAMES = {"__pycache__"}
+PYTHON_BYTECODE_SUFFIXES = (".pyc", ".pyo")
+
+
+class DevctlError(Exception):
+    """Базовая ожидаемая ошибка devctl."""
+
+
+class PreflightError(DevctlError):
+    """Проверка окружения или Git не прошла до применения патча."""
+
+
+class InvalidPatchError(DevctlError):
+    """Архив патча или его манифест некорректен либо небезопасен."""
+
+
+class CheckFailedError(DevctlError):
+    """Одна из проверок из манифеста не прошла после применения патча."""
+
+
+@dataclass
+class CommandResult:
+    args: list[str] | str
+    cwd: Path
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+@dataclass
+class CheckResult:
+    name: str
+    command: str
+    cwd: str
+    status: str
+    returncode: int | None = None
+    duration_seconds: float | None = None
+    log_path: str | None = None
+    error: str | None = None
+
+
+@dataclass
+class PatchCandidate:
+    path: Path
+    sha256: str | None = None
+    manifest: dict[str, Any] | None = None
+    manifest_error: str | None = None
+    sort_key: tuple[Any, ...] = (0.0, 0.0, 0.0, "")
+
+    @property
+    def patch_id(self) -> str | None:
+        if isinstance(self.manifest, dict):
+            value = self.manifest.get("patchId")
+            if isinstance(value, str):
+                return value
+        return None
+
+    @property
+    def title(self) -> str | None:
+        if isinstance(self.manifest, dict):
+            value = self.manifest.get("title")
+            if isinstance(value, str):
+                return value
+        return None
+
+
+@dataclass
+class Workspace:
+    project_root: Path
+    workspace_root: Path
+    patches_dir: Path
+    archives_dir: Path
+    uts_dir: Path
+    state_dir: Path
+    state_file: Path
+
+
+@dataclass
+class RunContext:
+    workspace: Workspace
+    patch: PatchCandidate
+    manifest: dict[str, Any]
+    started_at: datetime
+    status: str = "running"
+    run_dir: Path | None = None
+    logs_dir: Path | None = None
+    report_path: Path | None = None
+    pre_archive: Path | None = None
+    post_archive: Path | None = None
+    failed_archive: Path | None = None
+    commit_sha: str | None = None
+    push_result: str | None = None
+    push_enabled: bool = True
+    push_remote: str | None = None
+    push_branch: str | None = None
+    push_policy_note: str = "devctl default: push after successful checks and commit"
+    applied_started: bool = False
+    copied_files: list[str] = field(default_factory=list)
+    deleted_paths: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    check_results: list[CheckResult] = field(default_factory=list)
+    git_branch: str | None = None
+    git_head_before: str | None = None
+    git_status_before: str = ""
+    git_status_after_apply: str = ""
+    git_status_after_checks: str = ""
+    changes_introduced_by_checks: list[str] = field(default_factory=list)
+    archive_size_warnings: list[str] = field(default_factory=list)
+    ignored_bytecode_files: list[str] = field(default_factory=list)
+    cleaned_bytecode_paths: list[str] = field(default_factory=list)
+    bytecode_cleanup_error: str | None = None
+    auto_reset_performed: bool = False
+    auto_reset_target: str | None = None
+    auto_reset_clean_mode: str | None = None
+    auto_reset_error: str | None = None
+    git_status_after_reset: str = ""
+    bad_patch_deleted: str | None = None
+    bad_patch_delete_error: str | None = None
+    uts_dir: Path | None = None
+    uts_project_dir: Path | None = None
+    uts_error: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# Encoding / printing helpers
+# ---------------------------------------------------------------------------
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def iso_now() -> str:
+    return now_utc().isoformat(timespec="seconds")
+
+
+def safe_decode(data: bytes | str | None) -> str:
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    return data.decode("utf-8", errors="replace")
+
+
+def print_header(title: str) -> None:
+    print(f"\n== {title} ==")
+
+
+def rel_display(path: Path, base: Path) -> str:
+    try:
+        return path.resolve().relative_to(base.resolve()).as_posix()
+    except Exception:
+        return str(path)
+
+
+def slugify(value: str | None, fallback: str = "patch") -> str:
+    text = (value or fallback).strip().lower()
+    text = re.sub(r"[^a-z0-9._-]+", "-", text)
+    text = re.sub(r"-+", "-", text).strip("-._")
+    return text or fallback
+
+
+def short_sha(value: str | None, length: int = 7) -> str:
+    return (value or "unknown")[:length]
+
+
+def unique_strings(values: Iterable[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value)
+        if text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+    return result
+
+
+def default_archive_excludes() -> list[str]:
+    """Archive excludes written by fresh init and expected by upgrade checks.
+
+    Keeping these defaults in one place prevents a newly initialized workspace
+    from immediately being reported as outdated by `devctl status`.
+    """
+    include_overrides = [f"!{item}" for item in sorted(ARCHIVE_INCLUDED_PATHS)]
+    return unique_strings(
+        [*sorted(ARCHIVE_EXCLUDED_PARTS), *ARCHIVE_EXCLUDED_SUFFIXES, *WORKSPACE_ARCHIVE_REQUIRED_EXCLUDES, *include_overrides]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Subprocess helpers
+# ---------------------------------------------------------------------------
+
+
+def run_command(
+    args: list[str] | str,
+    cwd: Path,
+    *,
+    timeout: int | None = None,
+    shell: bool = False,
+) -> CommandResult:
+    try:
+        completed = subprocess.run(
+            args,
+            cwd=str(cwd),
+            shell=shell,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout,
+            check=False,
+        )
+        return CommandResult(
+            args=args,
+            cwd=cwd,
+            returncode=completed.returncode,
+            stdout=safe_decode(completed.stdout),
+            stderr=safe_decode(completed.stderr),
+        )
+    except subprocess.TimeoutExpired as exc:
+        stdout = safe_decode(exc.stdout)
+        stderr = safe_decode(exc.stderr)
+        return CommandResult(args=args, cwd=cwd, returncode=124, stdout=stdout, stderr=stderr + "\nTIMEOUT")
+    except FileNotFoundError as exc:
+        return CommandResult(
+            args=args,
+            cwd=cwd,
+            returncode=127,
+            stdout="",
+            stderr=f"Не удалось запустить команду или открыть рабочий каталог: {exc}",
+        )
+
+
+def git(project_root: Path, args: list[str], *, timeout: int | None = 120) -> CommandResult:
+    return run_command(["git", *args], project_root, timeout=timeout)
+
+
+def require_git(project_root: Path, args: list[str], *, timeout: int | None = 120) -> CommandResult:
+    result = git(project_root, args, timeout=timeout)
+    if result.returncode != 0:
+        command = "git " + " ".join(args)
+        raise PreflightError(f"{command} failed: {result.stderr.strip() or result.stdout.strip()}")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Discovery
+# ---------------------------------------------------------------------------
+
+
+def looks_like_project_root(path: Path) -> bool:
+    """Проектно-независимое определение корня проекта.
+
+    Репозиторий Git — самый сильный сигнал. Несколько типичных файлов сборки
+    принимаются только как запасной вариант для экспериментов без Git и dry-run.
+    """
+    if (path / ".git").exists():
+        return True
+    markers = (
+        "pyproject.toml",
+        "package.json",
+        "Cargo.toml",
+        "go.mod",
+        "CMakeLists.txt",
+        "pom.xml",
+        "build.gradle",
+        "Makefile",
+        "README.md",
+    )
+    return any((path / marker).exists() for marker in markers)
+
+
+def read_json_file(path: Path) -> dict[str, Any]:
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except FileNotFoundError as exc:
+        raise DevctlError(f"Файл конфигурации не найден: {path}") from exc
+    except Exception as exc:
+        raise DevctlError(f"Не удалось прочитать JSON-конфигурацию {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DevctlError(f"Некорректная JSON-конфигурация {path}: корень должен быть объектом")
+    return data
+
+
+def write_json_file(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="\n") as fh:
+        json.dump(data, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    tmp.replace(path)
+
+
+def expand_user_path(raw: str | Path) -> Path:
+    """Expand ~ and environment variables in a user-supplied path."""
+    return Path(os.path.expandvars(str(raw))).expanduser()
+
+
+def workspace_override_value(workspace_arg: str | None = None) -> str | None:
+    value = (workspace_arg or "").strip()
+    if value:
+        return value
+    value = (os.environ.get(DEVCTL_WORKSPACE_ENV) or "").strip()
+    return value or None
+
+
+def workspace_arg_from_namespace(args: argparse.Namespace | None) -> str | None:
+    if args is None:
+        return None
+    return getattr(args, "workspace_override", None) or getattr(args, "workspace", None)
+
+
+def candidate_start_dirs() -> list[Path]:
+    result: list[Path] = []
+    try:
+        result.append(Path.cwd().resolve())
+    except Exception:
+        pass
+    try:
+        result.append(Path(__file__).resolve().parent)
+    except Exception:
+        pass
+    # Preserve order while removing duplicates.
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for item in result:
+        if item not in seen:
+            unique.append(item)
+            seen.add(item)
+    return unique
+
+
+def find_workspace_config() -> Path | None:
+    for start in candidate_start_dirs():
+        for current in [start, *start.parents]:
+            config = current / ".devctl" / "workspace.json"
+            if config.is_file():
+                return config
+    return None
+
+
+def resolve_workspace_path(workspace_root: Path, raw: Any, *, default: str, key: str) -> Path:
+    value = raw if isinstance(raw, str) and raw.strip() else default
+    rel = validate_relative_posix_path(value, allow_dot=True, kind=f"workspace.{key}")
+    if rel == ".":
+        return workspace_root.resolve()
+    return (workspace_root / Path(*rel.split("/"))).resolve()
+
+
+def discover_workspace_from_config(config_path: Path) -> Workspace:
+    workspace_root = config_path.parent.parent.resolve()
+    config = read_json_file(config_path)
+    project_root = resolve_workspace_path(
+        workspace_root,
+        config.get("projectDir"),
+        default=DEFAULT_PROJECT_DIR_NAME,
+        key="projectDir",
+    )
+    patches_dir = resolve_workspace_path(
+        workspace_root,
+        config.get("patchesDir"),
+        default=DEFAULT_PATCHES_DIR_NAME,
+        key="patchesDir",
+    )
+    archives_dir = resolve_workspace_path(
+        workspace_root,
+        config.get("archivesDir"),
+        default=DEFAULT_ARCHIVES_DIR_NAME,
+        key="archivesDir",
+    )
+    uts_dir = resolve_workspace_path(
+        workspace_root,
+        config.get("userTestSpaceDir"),
+        default=DEFAULT_UTS_DIR_NAME,
+        key="userTestSpaceDir",
+    )
+    state_dir = workspace_root / ".devctl"
+    return Workspace(
+        project_root=project_root,
+        workspace_root=workspace_root,
+        patches_dir=patches_dir,
+        archives_dir=archives_dir,
+        uts_dir=uts_dir,
+        state_dir=state_dir,
+        state_file=state_dir / "state.json",
+    )
+
+
+def find_project_root() -> Path:
+    seen: set[Path] = set()
+    for start in candidate_start_dirs():
+        for current in [start, *start.parents]:
+            if current in seen:
+                continue
+            seen.add(current)
+            if looks_like_project_root(current):
+                return current
+    raise DevctlError(
+        "Не удалось найти корень проекта. Запустите `devctl init --project ./your-project` "
+        "из корня рабочей области или запускайте devctl из каталога Git/проекта."
+    )
+
+
+def fallback_workspace_for_project(project_root: Path) -> Workspace:
+    workspace_root = project_root.parent
+    patches_dir = workspace_root / DEFAULT_PATCHES_DIR_NAME
+    archives_dir = workspace_root / DEFAULT_ARCHIVES_DIR_NAME
+    if not archives_dir.exists():
+        for alias in LEGACY_ARCHIVES_DIR_ALIASES:
+            legacy = workspace_root / alias
+            if legacy.exists():
+                archives_dir = legacy
+                break
+    state_dir = workspace_root / ".devctl"
+    return Workspace(
+        project_root=project_root.resolve(),
+        workspace_root=workspace_root.resolve(),
+        patches_dir=patches_dir.resolve(),
+        archives_dir=archives_dir.resolve(),
+        uts_dir=(workspace_root / DEFAULT_UTS_DIR_NAME).resolve(),
+        state_dir=state_dir.resolve(),
+        state_file=(state_dir / "state.json").resolve(),
+    )
+
+
+def discover_workspace_from_override(raw: str) -> Workspace:
+    candidate = expand_user_path(raw).resolve()
+    if candidate.is_file():
+        if candidate.name != "workspace.json":
+            raise DevctlError(f"--workspace должен указывать на каталог workspace, каталог проекта или .devctl/workspace.json: {candidate}")
+        return discover_workspace_from_config(candidate)
+
+    if candidate.name == ".devctl" and (candidate / "workspace.json").is_file():
+        return discover_workspace_from_config(candidate / "workspace.json")
+
+    config_path = candidate / ".devctl" / "workspace.json"
+    if config_path.is_file():
+        return discover_workspace_from_config(config_path)
+
+    # Удобный режим для уже существующих Git/проектных каталогов без devctl-init:
+    # `devctl -w /path/to/repo status` будет искать patches/ и archives/ рядом с repo.
+    if candidate.exists() and looks_like_project_root(candidate):
+        return fallback_workspace_for_project(candidate)
+
+    if candidate.exists() and candidate.is_dir():
+        state_dir = candidate / ".devctl"
+        archives_dir = candidate / DEFAULT_ARCHIVES_DIR_NAME
+        if not archives_dir.exists():
+            for alias in LEGACY_ARCHIVES_DIR_ALIASES:
+                legacy = candidate / alias
+                if legacy.exists():
+                    archives_dir = legacy
+                    break
+        return Workspace(
+            project_root=(candidate / DEFAULT_PROJECT_DIR_NAME).resolve(),
+            workspace_root=candidate.resolve(),
+            patches_dir=(candidate / DEFAULT_PATCHES_DIR_NAME).resolve(),
+            archives_dir=archives_dir.resolve(),
+            uts_dir=(candidate / DEFAULT_UTS_DIR_NAME).resolve(),
+            state_dir=state_dir.resolve(),
+            state_file=(state_dir / "state.json").resolve(),
+        )
+
+    raise DevctlError(f"Workspace не найден: {candidate}. Создайте его командой `devctl init --workspace {candidate}`.")
+
+
+def discover_workspace(workspace_arg: str | None = None) -> Workspace:
+    override = workspace_override_value(workspace_arg)
+    if override:
+        return discover_workspace_from_override(override)
+
+    config_path = find_workspace_config()
+    if config_path:
+        return discover_workspace_from_config(config_path)
+
+    project_root = find_project_root()
+    return fallback_workspace_for_project(project_root)
+
+
+def validate_workspace_for_start(workspace: Workspace) -> None:
+    if not workspace.patches_dir.is_dir():
+        raise PreflightError(f"Каталог патчей отсутствует: {workspace.patches_dir}")
+    if not workspace.archives_dir.exists():
+        workspace.archives_dir.mkdir(parents=True, exist_ok=True)
+    if not workspace.archives_dir.is_dir():
+        raise PreflightError(f"Путь архивов не является каталогом: {workspace.archives_dir}")
+
+
+# ---------------------------------------------------------------------------
+# State registry
+# ---------------------------------------------------------------------------
+
+
+def load_state(workspace: Workspace) -> dict[str, Any]:
+    if not workspace.state_file.exists():
+        return {"version": STATE_VERSION, "runs": []}
+    try:
+        with workspace.state_file.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as exc:
+        raise DevctlError(f"Не удалось прочитать реестр состояния {workspace.state_file}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise DevctlError(f"Некорректный реестр состояния {workspace.state_file}: корень должен быть объектом")
+    if not isinstance(data.get("runs"), list):
+        data["runs"] = []
+    data.setdefault("version", STATE_VERSION)
+    return data
+
+
+def save_state(workspace: Workspace, state: dict[str, Any]) -> None:
+    workspace.state_dir.mkdir(parents=True, exist_ok=True)
+    tmp = workspace.state_file.with_suffix(".json.tmp")
+    with tmp.open("w", encoding="utf-8", newline="\n") as fh:
+        json.dump(state, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    tmp.replace(workspace.state_file)
+
+
+def append_run_state(workspace: Workspace, run: dict[str, Any]) -> None:
+    state = load_state(workspace)
+    runs = state.setdefault("runs", [])
+    runs.append(run)
+    save_state(workspace, state)
+
+
+def find_state_run(state: dict[str, Any], patch_sha256: str | None, patch_id: str | None = None) -> dict[str, Any] | None:
+    for run in reversed(state.get("runs", [])):
+        if patch_sha256 and run.get("patchSha256") == patch_sha256 and run.get("status") == "applied":
+            return run
+        if patch_id and run.get("patchId") == patch_id and run.get("status") == "applied":
+            return run
+    return None
+
+
+def latest_failed_run(state: dict[str, Any]) -> dict[str, Any] | None:
+    for run in reversed(state.get("runs", [])):
+        if run.get("status") in {"failed", "push_failed", "interrupted", "preflight_failed", "invalid_patch"}:
+            return run
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Чтение и сортировка патчей
+# ---------------------------------------------------------------------------
+
+
+def sha256_file(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def parse_iso_datetime(value: str) -> float | None:
+    text = value.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except ValueError:
+        return None
+
+
+def timestamp_from_patch_filename(path: Path) -> float | None:
+    match = PATCH_FILENAME_RE.match(path.name)
+    if not match:
+        return None
+    raw = match.group(1) + match.group(2)
+    try:
+        parsed = datetime.strptime(raw, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except ValueError:
+        return None
+
+
+def read_manifest_from_zip(path: Path) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            try:
+                with zf.open("manifest.json", "r") as fh:
+                    data = json.loads(safe_decode(fh.read()))
+            except KeyError:
+                return None, "manifest.json отсутствует"
+    except zipfile.BadZipFile:
+        return None, "это не корректный zip-файл"
+    except Exception as exc:
+        return None, f"не удалось прочитать manifest.json: {exc}"
+    if not isinstance(data, dict):
+        return None, "корень manifest.json должен быть объектом"
+    return data, None
+
+
+def candidate_sort_key(path: Path, manifest: dict[str, Any] | None) -> tuple[float, float, float, str]:
+    """Ключ порядка патчей: сначала фактически добавленный/обновлённый zip.
+
+    Пользователь кладёт очередной patch.zip в patches/ вручную, поэтому
+    главным сигналом должен быть mtime файла в этой папке. Внутренние
+    createdAt и timestamp в имени остаются запасными tie-breaker'ами: они
+    полезны, когда несколько файлов попали в каталог с одинаковым mtime.
+    """
+    try:
+        fs_mtime = path.stat().st_mtime
+    except OSError:
+        fs_mtime = 0.0
+
+    manifest_created = 0.0
+    if isinstance(manifest, dict):
+        created = manifest.get("createdAt")
+        if isinstance(created, str):
+            manifest_created = parse_iso_datetime(created) or 0.0
+
+    filename_ts = timestamp_from_patch_filename(path) or 0.0
+    return (fs_mtime, manifest_created, filename_ts, path.name.lower())
+
+
+def list_patch_candidates(workspace: Workspace) -> list[PatchCandidate]:
+    if not workspace.patches_dir.is_dir():
+        return []
+    candidates: list[PatchCandidate] = []
+    for path in workspace.patches_dir.glob("*.zip"):
+        manifest, error = read_manifest_from_zip(path)
+        candidate = PatchCandidate(
+            path=path,
+            manifest=manifest,
+            manifest_error=error,
+            sort_key=candidate_sort_key(path, manifest),
+        )
+        try:
+            candidate.sha256 = sha256_file(path)
+        except Exception as exc:
+            candidate.manifest_error = f"не удалось посчитать hash патча: {exc}"
+        candidates.append(candidate)
+    candidates.sort(key=lambda c: c.sort_key, reverse=True)
+    return candidates
+
+
+def find_latest_unapplied_patch(
+    workspace: Workspace,
+    state: dict[str, Any],
+    candidates: list[PatchCandidate],
+) -> PatchCandidate | None:
+    for candidate in candidates:
+        if candidate.sha256 and find_state_run(state, candidate.sha256, candidate.patch_id):
+            continue
+        if candidate.sha256 and patch_seen_in_git(workspace.project_root, candidate.sha256, candidate.patch_id):
+            continue
+        return candidate
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Manifest validation and path safety
+# ---------------------------------------------------------------------------
+
+
+def require_dict(data: dict[str, Any], key: str) -> dict[str, Any]:
+    value = data.get(key)
+    if not isinstance(value, dict):
+        raise InvalidPatchError(f"manifest.{key} должен быть объектом")
+    return value
+
+
+def require_list(data: dict[str, Any], key: str) -> list[Any]:
+    value = data.get(key)
+    if not isinstance(value, list):
+        raise InvalidPatchError(f"manifest.{key} должен быть списком")
+    return value
+
+
+def validate_relative_posix_path(raw: Any, *, allow_dot: bool = False, kind: str = "path") -> str:
+    if not isinstance(raw, str):
+        raise InvalidPatchError(f"{kind} должен быть строкой")
+    value = raw.strip()
+    if not value:
+        raise InvalidPatchError(f"{kind} не должен быть пустым")
+    if value == "." and allow_dot:
+        return value
+    if value == "." and not allow_dot:
+        raise InvalidPatchError(f"{kind} не должен указывать на корень проекта")
+    if "\\" in value:
+        raise InvalidPatchError(f"{kind} должен использовать POSIX-разделители '/', получен backslash в {value!r}")
+    if value.startswith("/"):
+        raise InvalidPatchError(f"{kind} должен быть относительным, получен абсолютный путь {value!r}")
+    if value.startswith("//"):
+        raise InvalidPatchError(f"{kind} не должен быть UNC-подобным путём: {value!r}")
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise InvalidPatchError(f"{kind} содержит небезопасный сегмент: {value!r}")
+    if ":" in parts[0]:
+        raise InvalidPatchError(f"{kind} не должен начинаться с сегмента, похожего на диск: {value!r}")
+    return value
+
+
+def safe_destination(project_root: Path, relative_posix: str, *, kind: str = "path") -> Path:
+    rel = validate_relative_posix_path(relative_posix, kind=kind)
+    project_resolved = project_root.resolve()
+    destination = (project_resolved / Path(*rel.split("/"))).resolve()
+    try:
+        destination.relative_to(project_resolved)
+    except ValueError as exc:
+        raise InvalidPatchError(f"{kind} выходит за пределы корня проекта: {relative_posix!r}") from exc
+    return destination
+
+
+def validate_manifest(manifest: dict[str, Any]) -> None:
+    if manifest.get("formatVersion") != 1:
+        raise InvalidPatchError("manifest.formatVersion должен быть равен 1")
+    for key in ("patchId", "title", "summary"):
+        if not isinstance(manifest.get(key), str) or not manifest.get(key, "").strip():
+            raise InvalidPatchError(f"manifest.{key} должен быть непустой строкой")
+    apply = require_dict(manifest, "apply")
+    files_root = apply.get("filesRoot", "files")
+    validate_relative_posix_path(files_root, kind="apply.filesRoot")
+    delete_entries = apply.get("delete", [])
+    if not isinstance(delete_entries, list):
+        raise InvalidPatchError("manifest.apply.delete должен быть списком")
+    for index, entry in enumerate(delete_entries):
+        if not isinstance(entry, dict):
+            raise InvalidPatchError(f"manifest.apply.delete[{index}] должен быть объектом")
+        path = validate_relative_posix_path(entry.get("path"), kind=f"manifest.apply.delete[{index}].path")
+        parts = set(path.split("/"))
+        if parts & BANNED_PATH_PARTS:
+            raise InvalidPatchError(f"manifest.apply.delete[{index}].path указывает на запрещённый каталог: {path}")
+        for bool_key in ("recursive", "required"):
+            if bool_key in entry and not isinstance(entry.get(bool_key), bool):
+                raise InvalidPatchError(f"manifest.apply.delete[{index}].{bool_key} должен быть boolean")
+    checks = manifest.get("checks", [])
+    if not isinstance(checks, list):
+        raise InvalidPatchError("manifest.checks должен быть списком")
+    for index, check in enumerate(checks):
+        if not isinstance(check, dict):
+            raise InvalidPatchError(f"manifest.checks[{index}] должен быть объектом")
+        for key in ("name", "cwd", "command"):
+            if not isinstance(check.get(key), str) or not check.get(key, "").strip():
+                raise InvalidPatchError(f"manifest.checks[{index}].{key} должен быть непустой строкой")
+        validate_relative_posix_path(check.get("cwd"), allow_dot=True, kind=f"manifest.checks[{index}].cwd")
+        required = check.get("requiredCommands", [])
+        if not isinstance(required, list) or any(not isinstance(item, str) or not item.strip() for item in required):
+            raise InvalidPatchError(f"manifest.checks[{index}].requiredCommands должен быть списком строк")
+        timeout = check.get("timeoutSeconds", 300)
+        if not isinstance(timeout, int) or timeout <= 0:
+            raise InvalidPatchError(f"manifest.checks[{index}].timeoutSeconds должен быть положительным целым числом")
+    commit = manifest.get("commit", {"enabled": True})
+    if not isinstance(commit, dict):
+        raise InvalidPatchError("manifest.commit должен быть объектом")
+    if commit.get("enabled", True):
+        if not isinstance(commit.get("message"), str) or not commit.get("message", "").strip():
+            raise InvalidPatchError("manifest.commit.message должен быть непустой строкой, когда commit включён")
+    push = manifest.get("push", {"enabled": True})
+    if not isinstance(push, dict):
+        raise InvalidPatchError("manifest.push должен быть объектом")
+    for section in ("setup", "services"):
+        if section in manifest and not isinstance(manifest.get(section), list):
+            raise InvalidPatchError(f"manifest.{section} зарезервирован и должен быть списком")
+        if isinstance(manifest.get(section), list) and manifest.get(section):
+            raise InvalidPatchError(
+                f"manifest.{section} зарезервирован для будущей версии devctl; "
+                f"v{DEVCTL_VERSION} не устанавливает зависимости автоматически и не запускает сервисы"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Git state and applied detection
+# ---------------------------------------------------------------------------
+
+
+def git_available() -> bool:
+    return shutil.which("git") is not None
+
+
+def git_branch(project_root: Path) -> str:
+    result = git(project_root, ["rev-parse", "--abbrev-ref", "HEAD"])
+    if result.returncode == 0 and result.stdout.strip() and result.stdout.strip() != "HEAD":
+        return result.stdout.strip()
+
+    # В пустом только что созданном репозитории HEAD ещё не указывает на
+    # commit, поэтому rev-parse может падать. Для GUI-init это нормальное
+    # состояние: ветка уже выбрана, а первый commit появится после первого
+    # применённого патча.
+    symbolic = git(project_root, ["symbolic-ref", "--short", "HEAD"])
+    if symbolic.returncode == 0 and symbolic.stdout.strip():
+        return symbolic.stdout.strip()
+
+    command = "git rev-parse --abbrev-ref HEAD"
+    raise PreflightError(f"{command} failed: {result.stderr.strip() or result.stdout.strip()}")
+
+
+def git_head(project_root: Path) -> str:
+    result = require_git(project_root, ["rev-parse", "HEAD"])
+    return result.stdout.strip()
+
+
+def git_last_commit_summary(project_root: Path) -> str:
+    result = git(project_root, ["log", "-1", "--pretty=%h %s"])
+    if result.returncode != 0:
+        return "неизвестно"
+    return result.stdout.strip() or "неизвестно"
+
+
+def git_status_porcelain(project_root: Path) -> str:
+    result = git(project_root, ["status", "--porcelain"])
+    if result.returncode != 0:
+        return ""
+    return result.stdout
+
+
+def git_status_short(project_root: Path) -> str:
+    result = git(project_root, ["status", "-sb"])
+    if result.returncode != 0:
+        return result.stderr.strip() or result.stdout.strip()
+    return result.stdout.strip()
+
+
+def git_reset_hard(project_root: Path, target: str = "HEAD") -> CommandResult:
+    return git(project_root, ["reset", "--hard", target], timeout=180)
+
+
+def git_clean(project_root: Path, mode: str = "fd") -> CommandResult:
+    if mode not in {"fd", "fdx"}:
+        raise DevctlError(f"clean-mode должен быть fd или fdx, получено: {mode!r}")
+    return git(project_root, ["clean", f"-{mode}"], timeout=180)
+
+
+def reset_workspace_project(workspace: Workspace, *, target: str = "HEAD", clean_mode: str = "fd") -> dict[str, Any]:
+    if not git_available():
+        raise DevctlError("команда git не найдена")
+    if not (workspace.project_root / ".git").exists():
+        raise DevctlError(f"Корень проекта не является Git-репозиторием: {workspace.project_root}")
+    status_before = git_status_porcelain(workspace.project_root)
+    reset_result = git_reset_hard(workspace.project_root, target)
+    if reset_result.returncode != 0:
+        raise DevctlError("git reset --hard завершился ошибкой: " + (reset_result.stderr.strip() or reset_result.stdout.strip()))
+    clean_result = git_clean(workspace.project_root, clean_mode)
+    if clean_result.returncode != 0:
+        raise DevctlError("git clean завершился ошибкой: " + (clean_result.stderr.strip() or clean_result.stdout.strip()))
+    status_after = git_status_porcelain(workspace.project_root)
+    return {
+        "target": target,
+        "cleanMode": clean_mode,
+        "gitStatusBefore": status_before,
+        "gitStatusAfter": status_after,
+        "resetStdout": reset_result.stdout,
+        "cleanStdout": clean_result.stdout,
+    }
+
+
+def safe_patch_path(workspace: Workspace, raw: str) -> Path:
+    text = str(raw or "").strip()
+    if not text:
+        raise DevctlError("Путь патча пуст")
+    candidate = expand_user_path(text)
+    if not candidate.is_absolute():
+        candidate = workspace.patches_dir / candidate
+    resolved = candidate.resolve()
+    patches_root = workspace.patches_dir.resolve()
+    try:
+        resolved.relative_to(patches_root)
+    except ValueError as exc:
+        raise DevctlError(f"Отказ удалить патч вне patches/: {resolved}") from exc
+    if resolved.suffix.lower() != ".zip":
+        raise DevctlError(f"Отказ удалить не-zip файл как патч: {resolved.name}")
+    if not resolved.is_file():
+        raise DevctlError(f"Файл патча не найден: {resolved}")
+    return resolved
+
+
+def delete_patch_file(path: Path, workspace: Workspace | None = None) -> str:
+    path.unlink()
+    if workspace is not None:
+        return rel_display(path, workspace.workspace_root)
+    return str(path)
+
+
+def latest_failed_patch_path(workspace: Workspace, state: dict[str, Any]) -> Path | None:
+    run = latest_failed_run(state)
+    if not run:
+        return None
+    patch_file = run.get("patchFile")
+    if not isinstance(patch_file, str) or not patch_file.strip():
+        return None
+    try:
+        return safe_patch_path(workspace, patch_file)
+    except DevctlError:
+        return None
+
+
+def maybe_delete_patch_for_context(ctx: RunContext) -> None:
+    try:
+        ctx.bad_patch_deleted = delete_patch_file(safe_patch_path(ctx.workspace, ctx.patch.path.name), ctx.workspace)
+    except Exception as exc:
+        ctx.bad_patch_delete_error = str(exc)
+
+
+def auto_reset_after_failed_start(ctx: RunContext, *, delete_bad_patch: bool = True, target: str = "HEAD", clean_mode: str = "fd") -> None:
+    if not ctx.applied_started:
+        return
+    if ctx.commit_sha or ctx.status == "push_failed":
+        ctx.warnings.append("Auto-reset пропущен: локальный commit уже создан или ошибка относится к push.")
+        return
+    ctx.auto_reset_target = target
+    ctx.auto_reset_clean_mode = clean_mode
+    try:
+        reset_info = reset_workspace_project(ctx.workspace, target=target, clean_mode=clean_mode)
+        ctx.auto_reset_performed = True
+        ctx.git_status_after_reset = str(reset_info.get("gitStatusAfter") or "")
+        if ctx.logs_dir:
+            write_log(ctx, "git-status-after-auto-reset.log", ctx.git_status_after_reset)
+        if delete_bad_patch:
+            maybe_delete_patch_for_context(ctx)
+    except Exception as exc:
+        ctx.auto_reset_error = str(exc)
+        ctx.warnings.append(f"Auto-reset не удалось выполнить: {exc}")
+
+
+def fetch_remote(project_root: Path, remote: str) -> None:
+    result = git(project_root, ["fetch", "--prune", remote], timeout=180)
+    if result.returncode != 0:
+        raise PreflightError(f"git fetch --prune {remote} завершился ошибкой: {result.stderr.strip() or result.stdout.strip()}")
+
+
+def remote_ref_exists(project_root: Path, remote: str, branch: str) -> bool:
+    result = git(project_root, ["rev-parse", "--verify", f"{remote}/{branch}"])
+    return result.returncode == 0
+
+
+def ahead_behind(project_root: Path, remote: str, branch: str) -> tuple[int | None, int | None, str | None]:
+    ref = f"{remote}/{branch}"
+    if not remote_ref_exists(project_root, remote, branch):
+        return None, None, f"Remote-ссылка {ref} не найдена"
+    result = git(project_root, ["rev-list", "--left-right", "--count", f"HEAD...{ref}"])
+    if result.returncode != 0:
+        return None, None, result.stderr.strip() or result.stdout.strip()
+    parts = result.stdout.strip().split()
+    if len(parts) != 2:
+        return None, None, f"Неожиданный вывод ahead/behind: {result.stdout!r}"
+    return int(parts[0]), int(parts[1]), None
+
+
+def workspace_git_config(workspace: Workspace) -> dict[str, Any]:
+    config_path = workspace.state_dir / "workspace.json"
+    if not config_path.is_file():
+        return {}
+    try:
+        data = read_json_file(config_path)
+    except DevctlError:
+        return {}
+    git_cfg = data.get("git")
+    return git_cfg if isinstance(git_cfg, dict) else {}
+
+
+def bool_from_config(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    return default
+
+
+def effective_push_policy(
+    workspace: Workspace,
+    manifest: dict[str, Any],
+    *,
+    no_push: bool = False,
+    current_branch: str | None = None,
+) -> tuple[bool, str, str, str]:
+    """Вернуть (enabled, remote, branch, note) для шага git push в devctl.
+
+    Манифест патча может подсказать цель push, но не владеет политикой рабочего
+    процесса. По умолчанию `devctl start` — это «волшебная кнопка»: зелёные
+    проверки ведут к коммиту и push. `devctl start --no-push` нужен только для
+    явно локальных/отладочных запусков.
+    """
+    git_cfg = workspace_git_config(workspace)
+    push_cfg = manifest.get("push") if isinstance(manifest.get("push"), dict) else {}
+
+    remote = push_cfg.get("remote") or git_cfg.get("remote") or "origin"
+    branch = push_cfg.get("branch") or git_cfg.get("branch") or current_branch or "main"
+    if not isinstance(remote, str) or not remote.strip():
+        remote = "origin"
+    if not isinstance(branch, str) or not branch.strip():
+        branch = current_branch or "main"
+
+    if no_push:
+        return False, remote, branch, "отключено параметром CLI --no-push"
+
+    if bool_from_config(git_cfg.get("enabled"), True) is False:
+        return False, remote, branch, "отключено настройкой workspace git.enabled=false"
+
+    if bool_from_config(git_cfg.get("autoPush"), True) is False:
+        return False, remote, branch, "отключено настройкой workspace git.autoPush=false"
+
+    if push_cfg.get("enabled") is False:
+        return True, remote, branch, "manifest push.enabled=false проигнорирован; по умолчанию devctl делает commit+push после зелёных проверок"
+
+    return True, remote, branch, "devctl по умолчанию: push после успешных проверок и коммита"
+
+
+def validate_git_preflight(
+    workspace: Workspace,
+    manifest: dict[str, Any],
+    ctx: RunContext | None = None,
+    *,
+    no_push: bool = False,
+) -> None:
+    if not git_available():
+        raise PreflightError("команда git не найдена")
+    if not (workspace.project_root / ".git").exists():
+        raise PreflightError(f"Корень проекта не является Git-репозиторием: {workspace.project_root}")
+
+    status = git_status_porcelain(workspace.project_root)
+    if ctx:
+        ctx.git_status_before = status
+        try:
+            ctx.git_branch = git_branch(workspace.project_root)
+            ctx.git_head_before = git_head(workspace.project_root)
+        except DevctlError:
+            pass
+    if status.strip():
+        raise PreflightError(
+            "Рабочее дерево Git не чистое. Перед запуском devctl start закоммитьте, спрячьте или отмените локальные изменения."
+        )
+
+    base = manifest.get("base") if isinstance(manifest.get("base"), dict) else {}
+    expected_branch = base.get("branch") if isinstance(base.get("branch"), str) else None
+    current_branch = git_branch(workspace.project_root)
+    if expected_branch and current_branch != expected_branch:
+        raise PreflightError(f"Патч ожидает ветку {expected_branch!r}, текущая ветка — {current_branch!r}")
+
+    push_enabled, remote, branch, note = effective_push_policy(
+        workspace, manifest, no_push=no_push, current_branch=current_branch
+    )
+    if ctx:
+        ctx.push_enabled = push_enabled
+        ctx.push_remote = remote
+        ctx.push_branch = branch
+        ctx.push_policy_note = note
+        if "ignored" in note:
+            ctx.warnings.append(note)
+
+    if not push_enabled:
+        return
+    if not isinstance(remote, str) or not remote:
+        raise PreflightError("push remote должен быть непустой строкой")
+    if not isinstance(branch, str) or not branch:
+        raise PreflightError("push branch должен быть непустой строкой")
+
+    fetch_remote(workspace.project_root, remote)
+    if not remote_ref_exists(workspace.project_root, remote, branch):
+        message = f"Remote-ссылка {remote}/{branch} пока не найдена; первый успешный push создаст ветку."
+        if ctx:
+            ctx.warnings.append(message)
+        return
+
+    ahead, behind, error = ahead_behind(workspace.project_root, remote, branch)
+    if error:
+        raise PreflightError(error)
+    if ahead and behind:
+        raise PreflightError(f"Локальная ветка разошлась с {remote}/{branch}: ahead={ahead}, behind={behind}")
+    if behind:
+        raise PreflightError(f"Локальная ветка отстаёт от {remote}/{branch} на {behind} коммит(ов). Сначала синхронизируйте вручную.")
+    if ahead:
+        raise PreflightError(
+            f"Локальная ветка опережает {remote}/{branch} на {ahead} коммит(ов). Выполните push/синхронизацию перед новым патчем."
+        )
+
+
+def patch_seen_in_git(project_root: Path, patch_sha256: str | None, patch_id: str | None, limit: int = 100) -> bool:
+    if not patch_sha256 and not patch_id:
+        return False
+    if not (project_root / ".git").exists() or not git_available():
+        return False
+    result = git(project_root, ["log", f"-n{limit}", "--format=%B%x1e"])
+    if result.returncode != 0:
+        return False
+    for message in result.stdout.split("\x1e"):
+        if patch_sha256 and f"Patch-SHA256: {patch_sha256}" in message:
+            return True
+        if patch_id and f"Patch-Id: {patch_id}" in message:
+            return True
+    return False
+
+
+def build_commit_message(manifest: dict[str, Any], patch_sha256: str) -> str:
+    commit = manifest.get("commit") if isinstance(manifest.get("commit"), dict) else {}
+    message = str(commit.get("message") or f"chore: применить патч {manifest.get('patchId')}").strip()
+    trailers = [
+        f"Patch-Id: {manifest.get('patchId')}",
+        f"Patch-SHA256: {patch_sha256}",
+        f"Devctl-Version: {DEVCTL_VERSION}",
+    ]
+    return message.rstrip() + "\n\n" + "\n".join(trailers) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Preflight checks
+# ---------------------------------------------------------------------------
+
+
+def validate_check_prerequisites(project_root: Path, manifest: dict[str, Any]) -> None:
+    checks = manifest.get("checks", [])
+    if not isinstance(checks, list):
+        raise InvalidPatchError("manifest.checks должен быть списком")
+    missing: list[str] = []
+    bad_cwds: list[str] = []
+    for index, check in enumerate(checks):
+        if not isinstance(check, dict):
+            continue
+        check_name = str(check.get("name", index))
+        cwd_raw = validate_relative_posix_path(check.get("cwd", "."), allow_dot=True, kind=f"checks[{index}].cwd")
+        cwd = project_root if cwd_raw == "." else safe_destination(project_root, cwd_raw, kind=f"checks[{index}].cwd")
+        if not cwd.is_dir():
+            bad_cwds.append(f"{check_name}: {cwd_raw}")
+        for command in check.get("requiredCommands", []):
+            command_name = command.strip()
+            if not shutil.which(command_name):
+                missing.append(f"{command_name} (required by {check_name})")
+    if bad_cwds:
+        raise PreflightError("Рабочий каталог проверки не существует до применения патча: " + ", ".join(bad_cwds))
+    if missing:
+        unique = sorted(set(missing))
+        raise PreflightError("Отсутствуют обязательные команды: " + ", ".join(unique))
+
+
+def validate_patch_files_root(candidate: PatchCandidate, manifest: dict[str, Any]) -> None:
+    files_root = manifest.get("apply", {}).get("filesRoot", "files")
+    files_root = validate_relative_posix_path(files_root, kind="apply.filesRoot")
+    prefix = files_root.rstrip("/") + "/"
+    try:
+        with zipfile.ZipFile(candidate.path, "r") as zf:
+            names = zf.namelist()
+    except Exception as exc:
+        raise InvalidPatchError(f"Не удалось проверить zip-архив патча: {exc}") from exc
+    file_entries = [name for name in names if name != files_root and name.startswith(prefix) and not name.endswith("/")]
+    actionable_file_entries = []
+    for name in file_entries:
+        relative = name[len(prefix) :]
+        if not is_python_bytecode_artifact(relative):
+            actionable_file_entries.append(name)
+    delete_entries = manifest.get("apply", {}).get("delete", [])
+    if not actionable_file_entries and not delete_entries:
+        if file_entries:
+            raise InvalidPatchError(
+                f"В патче внутри {files_root!r} есть только Python bytecode/cache, который devctl игнорирует"
+            )
+        raise InvalidPatchError(f"В патче нет файлов внутри {files_root!r} и нет записей на удаление")
+    for name in names:
+        if "\\" in name:
+            raise InvalidPatchError(f"Запись zip содержит backslash, что запрещено: {name!r}")
+        if name.startswith("/") or name.startswith("//"):
+            raise InvalidPatchError(f"Запись zip является абсолютной или UNC-подобной: {name!r}")
+        if name.startswith(prefix) and not name.endswith("/"):
+            relative = name[len(prefix) :]
+            validate_relative_posix_path(relative, kind=f"zip entry {name!r}")
+
+
+# ---------------------------------------------------------------------------
+# Archives
+# ---------------------------------------------------------------------------
+
+
+def archive_include_overrides(extra_excludes: Iterable[str] = ()) -> list[str]:
+    overrides = list(sorted(ARCHIVE_INCLUDED_PATHS))
+    for pattern in extra_excludes:
+        if not isinstance(pattern, str) or not pattern.startswith("!"):
+            continue
+        normalized = pattern[1:].replace("\\", "/").strip("/")
+        if normalized:
+            overrides.append(normalized)
+    return unique_strings(overrides)
+
+
+def matches_archive_include_override(relative_posix: str, extra_excludes: Iterable[str] = ()) -> bool:
+    normalized_rel = relative_posix.replace("\\", "/").strip("/")
+    if not normalized_rel:
+        return False
+    is_dir = relative_posix.endswith("/")
+    for pattern in archive_include_overrides(extra_excludes):
+        normalized_pattern = pattern.replace("\\", "/").strip("/")
+        if not normalized_pattern:
+            continue
+        if is_dir and not any(char in normalized_pattern for char in "*?["):
+            # Directory pruning must keep parents of explicitly included files.
+            if normalized_pattern.startswith(normalized_rel + "/"):
+                return True
+        if fnmatch.fnmatch(normalized_rel, normalized_pattern):
+            return True
+    return False
+
+
+def should_exclude_from_archive(relative_posix: str, extra_excludes: Iterable[str] = ()) -> bool:
+    extra_excludes = tuple(extra_excludes or ())
+    if relative_posix == ".":
+        return False
+    normalized_rel = relative_posix.replace("\\", "/").strip("/")
+    if matches_archive_include_override(relative_posix, extra_excludes):
+        return False
+    name = Path(normalized_rel).name
+    parts = set(part for part in normalized_rel.split("/") if part)
+    if ".env.example" == name:
+        return False
+    if name == ".env" or name.startswith(".env."):
+        return True
+    if parts & ARCHIVE_EXCLUDED_PARTS:
+        return True
+    lower = normalized_rel.lower()
+    if lower.endswith(ARCHIVE_EXCLUDED_SUFFIXES):
+        return True
+    for pattern in extra_excludes:
+        if not pattern or pattern.startswith("!"):
+            continue
+        normalized = pattern.replace("\\", "/").strip("/")
+        if not normalized:
+            continue
+        if normalized.endswith("/"):
+            normalized = normalized.strip("/")
+            if normalized in parts or normalized_rel.startswith(normalized + "/"):
+                return True
+        if fnmatch.fnmatch(normalized_rel, normalized):
+            return True
+    return False
+
+
+def is_python_bytecode_artifact(relative_posix: str) -> bool:
+    normalized = relative_posix.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    parts = [part for part in normalized.split("/") if part]
+    if any(part in PYTHON_BYTECODE_DIR_NAMES for part in parts):
+        return True
+    return normalized.lower().endswith(PYTHON_BYTECODE_SUFFIXES)
+
+
+def clean_python_bytecode_artifacts(project_root: Path) -> list[str]:
+    """Delete Python bytecode/cache artifacts from the project tree.
+
+    This is intentionally conservative: only __pycache__ directories and
+    .pyc/.pyo files are removed, using pathlib/shutil only so it works on
+    Windows, Linux and macOS.
+    """
+    removed: list[str] = []
+    if not project_root.exists():
+        return removed
+
+    cache_dirs: list[Path] = []
+    bytecode_files: list[Path] = []
+    for root, dirs, files in os.walk(project_root):
+        root_path = Path(root)
+        for directory in dirs:
+            if directory in PYTHON_BYTECODE_DIR_NAMES:
+                cache_dirs.append(root_path / directory)
+        for filename in files:
+            if filename.lower().endswith(PYTHON_BYTECODE_SUFFIXES):
+                bytecode_files.append(root_path / filename)
+
+    for path in sorted(cache_dirs, key=lambda item: len(item.parts), reverse=True):
+        if path.exists():
+            shutil.rmtree(path)
+            removed.append(rel_display(path, project_root))
+
+    for path in sorted(bytecode_files):
+        if path.exists():
+            path.unlink()
+            removed.append(rel_display(path, project_root))
+
+    return sorted(set(removed))
+
+
+def clean_python_bytecode_for_start(ctx: RunContext, phase: str) -> None:
+    try:
+        removed = clean_python_bytecode_artifacts(ctx.workspace.project_root)
+    except Exception as exc:
+        ctx.bytecode_cleanup_error = str(exc)
+        ctx.warnings.append(f"Не удалось очистить Python bytecode/cache после этапа {phase}: {exc}")
+        return
+    if removed:
+        ctx.cleaned_bytecode_paths.extend(removed)
+        ctx.warnings.append(
+            f"Автоочистка Python bytecode/cache после этапа {phase}: удалено {len(removed)} объект(ов)."
+        )
+
+
+def unique_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+    stem = path.stem
+    suffix = path.suffix
+    parent = path.parent
+    for index in range(1, 10_000):
+        candidate = parent / f"{stem}_{index}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise DevctlError(f"Не удалось создать уникальный путь для {path}")
+
+
+def manifest_archive_excludes(manifest: dict[str, Any]) -> list[str]:
+    archive = manifest.get("archive") if isinstance(manifest.get("archive"), dict) else {}
+    excludes = archive.get("exclude", [])
+    if isinstance(excludes, list):
+        return [item for item in excludes if isinstance(item, str)]
+    return []
+
+
+def manifest_include_release_payloads(manifest: dict[str, Any]) -> bool:
+    archive = manifest.get("archive") if isinstance(manifest.get("archive"), dict) else {}
+    return bool(archive.get("includeReleasePayloads", False)) if isinstance(archive, dict) else False
+
+
+def release_payload_omission_kind(relative_posix: str) -> str | None:
+    parts = relative_posix.split("/")
+    if not parts or parts[0] != RELEASE_DIR_NAME:
+        return None
+    lower = relative_posix.lower()
+    if lower.endswith(RELEASE_ARCHIVE_PAYLOAD_SUFFIXES):
+        return "zip"
+    if lower.endswith(RELEASE_EXECUTABLE_PAYLOAD_SUFFIXES):
+        return "exe"
+    return None
+
+
+def release_placeholder_path(relative_posix: str, kind: str) -> str:
+    parent = relative_posix.rsplit("/", 1)[0] if "/" in relative_posix else ""
+    placeholder_name = RELEASE_ZIP_PLACEHOLDER if kind == "zip" else RELEASE_EXE_PLACEHOLDER
+    return f"{parent}/{placeholder_name}" if parent else placeholder_name
+
+
+def human_size(size_bytes: int | None) -> str:
+    if size_bytes is None:
+        return "unknown size"
+    units = ("B", "KiB", "MiB", "GiB")
+    value = float(size_bytes)
+    unit = units[0]
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            break
+        value /= 1024
+    if unit == "B":
+        return f"{int(value)} {unit}"
+    return f"{value:.1f} {unit}"
+
+
+def release_placeholder_text(entries: list[tuple[str, str, int | None]]) -> str:
+    lines = [
+        "Этот файл создан devctl при сборке snapshot-архива проекта.",
+        "",
+        "Тяжелые release payload-файлы намеренно не попали в архив devctl,",
+        "чтобы служебные pre/post/failed архивы не раздувались на много мегабайт.",
+        "",
+        "Исключенные файлы:",
+    ]
+    for kind, rel_path, size in entries:
+        label = "release zip" if kind == "zip" else "Windows exe-файл"
+        lines.append(f"- {rel_path} ({label}, {human_size(size)})")
+    lines.extend(
+        [
+            "",
+            "Это не удаляет исходные файлы из рабочей копии проекта.",
+            "Для реальной поставки пересобери release локально или используй исходный каталог release/.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def create_project_archive(
+    workspace: Workspace,
+    destination: Path,
+    *,
+    manifest: dict[str, Any] | None = None,
+    include_project_dir: bool | None = None,
+) -> tuple[Path, int]:
+    destination = unique_path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    extra_excludes = manifest_archive_excludes(manifest or {})
+    archive = manifest.get("archive") if manifest and isinstance(manifest.get("archive"), dict) else {}
+    if include_project_dir is None:
+        include_project_dir = bool(archive.get("includeProjectDir", True)) if isinstance(archive, dict) else True
+
+    include_release_payloads = manifest_include_release_payloads(manifest or {})
+
+    file_count = 0
+    written_arcnames: set[str] = set()
+    release_placeholders: dict[str, list[tuple[str, str, int | None]]] = {}
+    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        for root, dirs, files in os.walk(workspace.project_root):
+            root_path = Path(root)
+            rel_root = root_path.relative_to(workspace.project_root).as_posix()
+            # Prune excluded directories before walking into them.
+            kept_dirs = []
+            for directory in dirs:
+                rel_dir = directory if rel_root == "." else f"{rel_root}/{directory}"
+                if should_exclude_from_archive(rel_dir + "/", extra_excludes):
+                    continue
+                kept_dirs.append(directory)
+            dirs[:] = kept_dirs
+            for filename in files:
+                file_path = root_path / filename
+                rel_path = file_path.relative_to(workspace.project_root).as_posix()
+                if should_exclude_from_archive(rel_path, extra_excludes):
+                    continue
+
+                omission_kind = None if include_release_payloads else release_payload_omission_kind(rel_path)
+                if omission_kind:
+                    try:
+                        size_bytes = file_path.stat().st_size
+                    except OSError:
+                        size_bytes = None
+                    placeholder = release_placeholder_path(rel_path, omission_kind)
+                    release_placeholders.setdefault(placeholder, []).append((omission_kind, rel_path, size_bytes))
+                    continue
+
+                arcname = rel_path
+                if include_project_dir:
+                    arcname = f"{workspace.project_root.name}/{rel_path}"
+                zf.write(file_path, arcname)
+                written_arcnames.add(arcname)
+                file_count += 1
+
+        for placeholder_rel, entries in sorted(release_placeholders.items()):
+            arcname = placeholder_rel
+            if include_project_dir:
+                arcname = f"{workspace.project_root.name}/{placeholder_rel}"
+            if arcname in written_arcnames:
+                continue
+            zf.writestr(arcname, release_placeholder_text(entries))
+            written_arcnames.add(arcname)
+            file_count += 1
+    return destination, file_count
+
+
+def validate_zip_member_for_extract(name: str) -> tuple[str, ...]:
+    if not name or name.endswith("/"):
+        return tuple()
+    normalized = name.replace("\\", "/")
+    if "\\" in name:
+        raise DevctlError(f"Zip entry содержит backslash: {name!r}")
+    if normalized.startswith("/") or normalized.startswith("//"):
+        raise DevctlError(f"Zip entry является абсолютным или UNC-подобным: {name!r}")
+    parts = tuple(part for part in normalized.split("/") if part)
+    if not parts:
+        return tuple()
+    if any(part in {".", ".."} for part in parts):
+        raise DevctlError(f"Zip entry содержит небезопасный сегмент: {name!r}")
+    if ":" in parts[0]:
+        raise DevctlError(f"Zip entry начинается с сегмента, похожего на диск: {name!r}")
+    return parts
+
+
+def safe_extract_zip(zip_path: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    dest_resolved = destination.resolve()
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        for info in zf.infolist():
+            parts = validate_zip_member_for_extract(info.filename)
+            if not parts:
+                continue
+            target = (dest_resolved / Path(*parts)).resolve()
+            try:
+                target.relative_to(dest_resolved)
+            except ValueError as exc:
+                raise DevctlError(f"Zip entry выходит за пределы каталога назначения: {info.filename!r}") from exc
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info, "r") as source, target.open("wb") as out:
+                shutil.copyfileobj(source, out)
+
+
+def populate_user_test_space(ctx: RunContext) -> None:
+    if not ctx.post_archive:
+        return
+    uts_dir = ctx.workspace.uts_dir
+    ctx.uts_dir = uts_dir
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    slug = slugify(
+        (ctx.manifest.get("archive") if isinstance(ctx.manifest.get("archive"), dict) else {}).get("nameSlug")
+        or ctx.manifest.get("patchId")
+    )
+    version_dir = unique_path(uts_dir / f"project_{timestamp}_after_{slug}_{short_sha(ctx.commit_sha or ctx.patch.sha256)}")
+    tmp_dir = unique_path(uts_dir / f".tmp_{version_dir.name}")
+    try:
+        uts_dir.mkdir(parents=True, exist_ok=True)
+        safe_extract_zip(ctx.post_archive, tmp_dir)
+        entries = [path for path in tmp_dir.iterdir()] if tmp_dir.exists() else []
+        project_dir = version_dir / "project"
+        project_dir.parent.mkdir(parents=True, exist_ok=True)
+        if len(entries) == 1 and entries[0].is_dir():
+            shutil.move(str(entries[0]), str(project_dir))
+        else:
+            project_dir.mkdir(parents=True, exist_ok=False)
+            for entry in entries:
+                shutil.move(str(entry), str(project_dir / entry.name))
+        ctx.uts_project_dir = project_dir
+    except Exception as exc:
+        ctx.uts_error = str(exc)
+        ctx.warnings.append(f"Не удалось развернуть User Test Space: {exc}")
+    finally:
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def archive_name(project: str, timestamp: str, phase: str, slug: str, suffix: str = "") -> str:
+    extra = f"_{suffix}" if suffix else ""
+    return f"{phase}_{project}_{timestamp}_{slug}{extra}.zip"
+
+
+def create_run_dir(workspace: Workspace, manifest: dict[str, Any] | None, patch_sha: str | None) -> Path:
+    archive = manifest.get("archive") if isinstance(manifest, dict) and isinstance(manifest.get("archive"), dict) else {}
+    slug = slugify(archive.get("nameSlug") if isinstance(archive, dict) else None or manifest.get("patchId") if isinstance(manifest, dict) else None)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base = workspace.archives_dir / f"{timestamp}_{slug}_{short_sha(patch_sha)}"
+    return unique_path(base)
+
+
+# ---------------------------------------------------------------------------
+# Safe apply
+# ---------------------------------------------------------------------------
+
+
+def safe_delete_path(project_root: Path, relative_posix: str, *, recursive: bool, required: bool) -> tuple[str, str]:
+    rel = validate_relative_posix_path(relative_posix, kind="delete.path")
+    parts = rel.split("/")
+    if set(parts) & BANNED_PATH_PARTS:
+        raise InvalidPatchError(f"Отказ удалить запрещённый путь: {rel}")
+    target = safe_destination(project_root, rel, kind="delete.path")
+    if target == project_root.resolve():
+        raise InvalidPatchError("Отказ удалить корень проекта")
+    if not target.exists():
+        if required:
+            raise InvalidPatchError(f"Обязательный путь для удаления не существует: {rel}")
+        return rel, "missing"
+    if target.is_dir():
+        if not recursive:
+            raise InvalidPatchError(f"Путь удаления является каталогом; требуется recursive=true: {rel}")
+        shutil.rmtree(target)
+        return rel, "deleted directory"
+    target.unlink()
+    return rel, "deleted file"
+
+
+def apply_deletions(ctx: RunContext) -> None:
+    entries = ctx.manifest.get("apply", {}).get("delete", [])
+    for entry in entries:
+        path = entry.get("path")
+        recursive = bool(entry.get("recursive", False))
+        required = bool(entry.get("required", False))
+        rel, status = safe_delete_path(ctx.workspace.project_root, path, recursive=recursive, required=required)
+        if status == "missing":
+            ctx.warnings.append(f"Путь удаления уже отсутствует: {rel}")
+        else:
+            ctx.deleted_paths.append(rel)
+
+
+def safe_copy_files(ctx: RunContext) -> None:
+    project_root = ctx.workspace.project_root
+    files_root = ctx.manifest.get("apply", {}).get("filesRoot", "files")
+    files_root = validate_relative_posix_path(files_root, kind="apply.filesRoot")
+    prefix = files_root.rstrip("/") + "/"
+    with zipfile.ZipFile(ctx.patch.path, "r") as zf:
+        for info in zf.infolist():
+            name = info.filename
+            if not name.startswith(prefix) or name.endswith("/"):
+                continue
+            if "\\" in name:
+                raise InvalidPatchError(f"Запись zip содержит backslash: {name!r}")
+            relative = name[len(prefix) :]
+            rel = validate_relative_posix_path(relative, kind=f"zip entry {name!r}")
+            parts = rel.split("/")
+            if parts[0] == ".git" or ".git" in parts:
+                raise InvalidPatchError(f"Отказ копировать путь .git: {rel}")
+            if is_python_bytecode_artifact(rel):
+                ctx.ignored_bytecode_files.append(rel)
+                continue
+            if parts[-1] == ".env" or parts[-1].startswith(".env."):
+                raise InvalidPatchError(f"Отказ копировать env-файл, похожий на секрет: {rel}")
+            destination = safe_destination(project_root, rel, kind=f"zip entry {name!r}")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(info, "r") as source, destination.open("wb") as target:
+                shutil.copyfileobj(source, target)
+            ctx.copied_files.append(rel)
+
+
+# ---------------------------------------------------------------------------
+# Checks
+# ---------------------------------------------------------------------------
+
+
+def log_path_for_check(logs_dir: Path, index: int, name: str) -> Path:
+    return logs_dir / f"check-{index + 1:02d}-{slugify(name)}.log"
+
+
+def write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def run_checks(ctx: RunContext) -> None:
+    checks = ctx.manifest.get("checks", [])
+    if not checks:
+        ctx.warnings.append("В манифесте нет проверок; продолжаю, потому что checks=[] разрешён в v0.")
+        return
+    for index, check in enumerate(checks):
+        name = str(check.get("name"))
+        command = str(check.get("command"))
+        cwd_raw = str(check.get("cwd", "."))
+        cwd = ctx.workspace.project_root if cwd_raw == "." else safe_destination(ctx.workspace.project_root, cwd_raw, kind="check.cwd")
+        timeout = int(check.get("timeoutSeconds", 300))
+        log_path = log_path_for_check(ctx.logs_dir or ctx.workspace.archives_dir, index, name)
+        start = time.monotonic()
+        result = run_command(command, cwd, timeout=timeout, shell=True)
+        duration = time.monotonic() - start
+        log_text = []
+        log_text.append(f"# Проверка: {name}\n")
+        log_text.append(f"Команда: {command}\n")
+        log_text.append(f"Рабочий каталог: {cwd}\n")
+        log_text.append(f"Код возврата: {result.returncode}\n")
+        log_text.append(f"Длительность, секунд: {duration:.2f}\n\n")
+        log_text.append("## STDOUT\n")
+        log_text.append(result.stdout or "")
+        log_text.append("\n\n## STDERR\n")
+        log_text.append(result.stderr or "")
+        write_text(log_path, "".join(log_text))
+        check_result = CheckResult(
+            name=name,
+            command=command,
+            cwd=cwd_raw,
+            status="успех" if result.returncode == 0 else "ошибка",
+            returncode=result.returncode,
+            duration_seconds=duration,
+            log_path=rel_display(log_path, ctx.workspace.workspace_root),
+        )
+        if result.returncode == 124:
+            check_result.error = "таймаут"
+        elif result.returncode != 0:
+            check_result.error = "ненулевой код возврата"
+        ctx.check_results.append(check_result)
+        if result.returncode != 0:
+            raise CheckFailedError(f"Проверка не прошла: {name} (см. {log_path})")
+
+
+def parse_status_lines(status_text: str) -> set[str]:
+    return {line.strip() for line in status_text.splitlines() if line.strip()}
+
+
+def new_changes_after_checks(after_apply: str, after_checks: str) -> list[str]:
+    before = parse_status_lines(after_apply)
+    after = parse_status_lines(after_checks)
+    return sorted(after - before)
+
+
+# ---------------------------------------------------------------------------
+# Commit/push
+# ---------------------------------------------------------------------------
+
+
+def is_dangerous_git_path(relative_posix: str) -> bool:
+    normalized = relative_posix.replace("\\", "/")
+    parts = set(normalized.split("/"))
+    name = normalized.split("/")[-1]
+    lower = normalized.lower()
+    return (
+        name == ".env"
+        or name.startswith(".env.")
+        or bool(parts & DANGEROUS_GIT_PATH_PARTS)
+        or lower.endswith(DANGEROUS_GIT_PATH_SUFFIXES)
+    )
+
+
+def is_deletion_only_git_status(code: str) -> bool:
+    """Return True for plain tracked-file deletions in git porcelain v1.
+
+    Devctl must still block generated/cache additions, modifications, renames,
+    copies and untracked files.  A plain ``D`` in either porcelain column is
+    different: it means an already tracked path is being removed from Git,
+    which is exactly the desired repository-hygiene outcome after bytecode
+    auto-cleanup.
+    """
+    return code in {" D", "D "}
+
+
+def split_dangerous_git_changes(status_text: str) -> tuple[list[str], list[str]]:
+    dangerous: list[str] = []
+    allowed_cleanup_deletions: list[str] = []
+    for line in status_text.splitlines():
+        if not line.strip() or len(line) < 4:
+            continue
+        code = line[:2]
+        path_text = line[3:].strip()
+        # Rename/copy lines have "old -> new". Check both sides, but never
+        # treat them as deletion-only cleanup because they introduce or move
+        # paths and therefore must stay under the strict guard.
+        candidates = [part.strip() for part in path_text.split(" -> ")]
+        for candidate in candidates:
+            normalized = candidate.replace("\\", "/")
+            if not is_dangerous_git_path(normalized):
+                continue
+            if is_deletion_only_git_status(code) and is_python_bytecode_artifact(normalized):
+                allowed_cleanup_deletions.append(normalized)
+            else:
+                dangerous.append(normalized)
+    return sorted(set(dangerous)), sorted(set(allowed_cleanup_deletions))
+
+
+def dangerous_git_changes(status_text: str) -> list[str]:
+    dangerous, _allowed_cleanup_deletions = split_dangerous_git_changes(status_text)
+    return dangerous
+
+
+def commit_and_push(ctx: RunContext) -> None:
+    project_root = ctx.workspace.project_root
+    commit_cfg = ctx.manifest.get("commit") if isinstance(ctx.manifest.get("commit"), dict) else {}
+
+    if commit_cfg.get("enabled") is False:
+        ctx.warnings.append("manifest.commit.enabled=false проигнорирован; по умолчанию devctl делает коммит после зелёных проверок")
+
+    current_status = git_status_porcelain(project_root)
+    dangerous, allowed_cleanup_deletions = split_dangerous_git_changes(current_status)
+    if allowed_cleanup_deletions:
+        ctx.warnings.append(
+            "Разрешено cleanup-удаление tracked generated/cache файлов: "
+            + ", ".join(allowed_cleanup_deletions)
+        )
+    if dangerous:
+        raise DevctlError(
+            "Отказ коммитить опасные сгенерированные/локальные файлы: " + ", ".join(dangerous)
+        )
+
+    if not current_status.strip() and not commit_cfg.get("allowEmpty", False):
+        ctx.warnings.append("После патча/проверок нет изменений Git; commit и push пропущены.")
+        return
+
+    add_result = git(project_root, ["add", "-A"], timeout=120)
+    if add_result.returncode != 0:
+        raise DevctlError(f"git add -A завершился ошибкой: {add_result.stderr.strip() or add_result.stdout.strip()}")
+
+    message = build_commit_message(ctx.manifest, ctx.patch.sha256 or "")
+    # subprocess.run is used directly here because git commit reads the message from stdin.
+    completed = subprocess.run(
+        ["git", "commit", "-F", "-"],
+        input=message.encode("utf-8"),
+        cwd=str(project_root),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=180,
+        check=False,
+    )
+    commit_stdout = safe_decode(completed.stdout)
+    commit_stderr = safe_decode(completed.stderr)
+    if completed.returncode != 0:
+        raise DevctlError(f"git commit завершился ошибкой: {commit_stderr.strip() or commit_stdout.strip()}")
+    ctx.commit_sha = git_head(project_root)
+
+    if not ctx.push_enabled:
+        ctx.push_result = "пропущено: " + (ctx.push_policy_note or "push отключён")
+        return
+
+    remote = ctx.push_remote or "origin"
+    branch = ctx.push_branch or git_branch(project_root)
+    if not isinstance(remote, str) or not remote:
+        raise DevctlError("push remote должен быть непустой строкой")
+    if not isinstance(branch, str) or not branch:
+        raise DevctlError("push branch должен быть непустой строкой")
+    push_result = git(project_root, ["push", remote, f"HEAD:{branch}"], timeout=240)
+    if push_result.returncode != 0:
+        ctx.push_result = push_result.stderr.strip() or push_result.stdout.strip()
+        ctx.status = "push_failed"
+        raise DevctlError("PUSH_FAILED: " + ctx.push_result)
+    ctx.push_result = push_result.stdout.strip() or "push выполнен"
+
+
+# ---------------------------------------------------------------------------
+# Отчёты
+# ---------------------------------------------------------------------------
+
+
+def copy_manifest_to_logs(ctx: RunContext) -> None:
+    if not ctx.logs_dir:
+        return
+    manifest_path = ctx.logs_dir / "manifest.json"
+    write_text(manifest_path, json.dumps(ctx.manifest, ensure_ascii=False, indent=2) + "\n")
+
+
+def write_log(ctx: RunContext, name: str, text: str) -> None:
+    if not ctx.logs_dir:
+        return
+    write_text(ctx.logs_dir / name, text)
+
+
+def report_lines(ctx: RunContext, finished_at: datetime) -> list[str]:
+    patch_id = ctx.manifest.get("patchId", "неизвестно") if isinstance(ctx.manifest, dict) else "неизвестно"
+    title = ctx.manifest.get("title", "неизвестно") if isinstance(ctx.manifest, dict) else "неизвестно"
+    lines: list[str] = []
+    lines.append(f"# Отчёт запуска devctl — {ctx.status}\n")
+    lines.append("\n")
+    lines.append("## Патч\n\n")
+    lines.append(f"- ID патча: `{patch_id}`\n")
+    lines.append(f"- Название: {title}\n")
+    lines.append(f"- Файл патча: `{ctx.patch.path.name}`\n")
+    lines.append(f"- SHA-256 патча: `{ctx.patch.sha256 or 'неизвестно'}`\n")
+    lines.append("\n## Время\n\n")
+    lines.append(f"- Старт: `{ctx.started_at.isoformat(timespec='seconds')}`\n")
+    lines.append(f"- Финиш: `{finished_at.isoformat(timespec='seconds')}`\n")
+    lines.append("\n## Проект\n\n")
+    lines.append(f"- Корень проекта: `{ctx.workspace.project_root}`\n")
+    lines.append(f"- Корень рабочей области: `{ctx.workspace.workspace_root}`\n")
+    lines.append(f"- Ветка: `{ctx.git_branch or 'неизвестно'}`\n")
+    lines.append(f"- HEAD до запуска: `{ctx.git_head_before or 'неизвестно'}`\n")
+    lines.append("\n## Сводка применения\n\n")
+    lines.append(f"- Скопировано файлов: {len(ctx.copied_files)}\n")
+    for path in ctx.copied_files[:200]:
+        lines.append(f"  - `{path}`\n")
+    if len(ctx.copied_files) > 200:
+        lines.append(f"  - ... ещё {len(ctx.copied_files) - 200}\n")
+    lines.append(f"- Удалено путей: {len(ctx.deleted_paths)}\n")
+    for path in ctx.deleted_paths[:200]:
+        lines.append(f"  - `{path}`\n")
+    if len(ctx.deleted_paths) > 200:
+        lines.append(f"  - ... ещё {len(ctx.deleted_paths) - 200}\n")
+    lines.append(f"- Проигнорировано Python bytecode/cache из patch payload: {len(ctx.ignored_bytecode_files)}\n")
+    for path in ctx.ignored_bytecode_files[:200]:
+        lines.append(f"  - `{path}`\n")
+    if len(ctx.ignored_bytecode_files) > 200:
+        lines.append(f"  - ... ещё {len(ctx.ignored_bytecode_files) - 200}\n")
+    lines.append(f"- Автоочистка Python bytecode/cache в project: {len(set(ctx.cleaned_bytecode_paths))}\n")
+    for path in sorted(set(ctx.cleaned_bytecode_paths))[:200]:
+        lines.append(f"  - `{path}`\n")
+    if len(set(ctx.cleaned_bytecode_paths)) > 200:
+        lines.append(f"  - ... ещё {len(set(ctx.cleaned_bytecode_paths)) - 200}\n")
+    if ctx.bytecode_cleanup_error:
+        lines.append(f"- Ошибка очистки Python bytecode/cache: `{ctx.bytecode_cleanup_error}`\n")
+    lines.append("\n## Снимки статуса Git\n\n")
+    lines.append("### Изменения после применения\n\n")
+    lines.append("```text\n" + (ctx.git_status_after_apply or "<пусто>\n") + "```\n\n")
+    lines.append("### Изменения после проверок\n\n")
+    lines.append("```text\n" + (ctx.git_status_after_checks or "<пусто>\n") + "```\n\n")
+    lines.append("### Новые изменения, внесённые проверками\n\n")
+    if ctx.changes_introduced_by_checks:
+        for line in ctx.changes_introduced_by_checks:
+            lines.append(f"- `{line}`\n")
+    else:
+        lines.append("После проверок новых изменений не обнаружено.\n")
+    lines.append("\n## Проверки\n\n")
+    if ctx.check_results:
+        lines.append("| Проверка | Результат | Код возврата | Лог |\n")
+        lines.append("|---|---:|---:|---|\n")
+        for result in ctx.check_results:
+            lines.append(
+                f"| {result.name} | {result.status} | {result.returncode if result.returncode is not None else ''} | `{result.log_path or ''}` |\n"
+            )
+    else:
+        lines.append("Проверки не запускались.\n")
+    lines.append("\n## Архивы\n\n")
+    for label, path in (("Архив до применения", ctx.pre_archive), ("Архив после применения", ctx.post_archive), ("Архив ошибки", ctx.failed_archive)):
+        if path:
+            lines.append(f"- {label}: `{rel_display(path, ctx.workspace.workspace_root)}`\n")
+    if ctx.archive_size_warnings:
+        lines.append("\n### Предупреждения по архивам\n\n")
+        for warning in ctx.archive_size_warnings:
+            lines.append(f"- {warning}\n")
+    lines.append("\n## Auto reset\n\n")
+    lines.append(f"- Выполнен: `{'да' if ctx.auto_reset_performed else 'нет'}`\n")
+    lines.append(f"- Цель reset: `{ctx.auto_reset_target or 'нет'}`\n")
+    lines.append(f"- Clean mode: `{ctx.auto_reset_clean_mode or 'нет'}`\n")
+    lines.append(f"- Статус после reset: `{'clean' if ctx.auto_reset_performed and not ctx.git_status_after_reset.strip() else ('not clean' if ctx.auto_reset_performed else 'нет')}`\n")
+    lines.append(f"- Удалённый плохой патч: `{ctx.bad_patch_deleted or 'нет'}`\n")
+    lines.append(f"- Ошибка auto-reset: `{ctx.auto_reset_error or 'нет'}`\n")
+    lines.append(f"- Ошибка удаления патча: `{ctx.bad_patch_delete_error or 'нет'}`\n")
+    if ctx.git_status_after_reset:
+        lines.append("\n### Изменения после auto-reset\n\n")
+        lines.append("```text\n" + ctx.git_status_after_reset + "```\n")
+    lines.append("\n## User Test Space\n\n")
+    lines.append(f"- Каталог UTS: `{rel_display(ctx.workspace.uts_dir, ctx.workspace.workspace_root)}` {'[нет]' if not ctx.workspace.uts_dir.exists() else ''}\n")
+    lines.append(f"- Развёрнутая версия: `{rel_display(ctx.uts_project_dir, ctx.workspace.workspace_root) if ctx.uts_project_dir else 'нет'}`\n")
+    lines.append(f"- Ошибка UTS: `{ctx.uts_error or 'нет'}`\n")
+    lines.append("\n## Commit / push\n\n")
+    lines.append("- Политика конвейера по умолчанию: `проверки -> commit -> push`\n")
+    lines.append(f"- Push включён: `{ctx.push_enabled}`\n")
+    lines.append(f"- Цель push: `{(ctx.push_remote or 'origin')}/{(ctx.push_branch or ctx.git_branch or 'current')}`\n")
+    lines.append(f"- Примечание политики push: `{ctx.push_policy_note}`\n")
+    lines.append(f"- SHA коммита: `{ctx.commit_sha or 'нет'}`\n")
+    lines.append(f"- Результат push: `{ctx.push_result or 'нет'}`\n")
+    lines.append("\n## Предупреждения\n\n")
+    if ctx.warnings:
+        for warning in ctx.warnings:
+            lines.append(f"- {warning}\n")
+    else:
+        lines.append("Предупреждений нет.\n")
+    lines.append("\n## Ошибки\n\n")
+    if ctx.errors:
+        for error in ctx.errors:
+            lines.append(f"- {error}\n")
+    else:
+        lines.append("Ошибок нет.\n")
+    if ctx.status in {"failed", "push_failed", "interrupted"}:
+        lines.append("\n## Восстановление\n\n")
+        if ctx.applied_started:
+            if ctx.auto_reset_performed:
+                lines.append("Рабочее дерево автоматически откатилось после ошибки. Архив состояния ошибки создан до auto-reset, если это было возможно.\n")
+            else:
+                lines.append("Рабочее дерево могло остаться с изменениями для инспекции. Архив состояния ошибки должен существовать, если его удалось создать.\n\n")
+                lines.append("```bash\n")
+                lines.append("git status\n")
+                lines.append("git diff\n")
+                lines.append("# Осторожно: следующие команды откатывают локальные изменения.\n")
+                lines.append("git reset --hard HEAD\n")
+                lines.append("# Осторожно: удаляет untracked файлы/каталоги.\n")
+                lines.append("git clean -fd\n")
+                lines.append("```\n")
+        elif ctx.status == "push_failed":
+            lines.append("Коммит создан локально, но push не прошёл. Выполните `git status -sb` и push вручную после устранения причины.\n")
+        else:
+            lines.append("Патч не был применён до ошибки/прерывания. Проверьте логи и повторите после исправления причины.\n")
+    lines.append("\n## Итоговый статус\n\n")
+    lines.append(f"`{ctx.status}`\n")
+    return lines
+
+
+def write_report(ctx: RunContext) -> None:
+    if not ctx.run_dir:
+        return
+    finished_at = now_utc()
+    ctx.report_path = ctx.run_dir / "report.md"
+    write_text(ctx.report_path, "".join(report_lines(ctx, finished_at)))
+
+
+def update_state_from_context(ctx: RunContext) -> None:
+    if ctx.status == "running":
+        return
+    record = {
+        "patchId": ctx.manifest.get("patchId") if isinstance(ctx.manifest, dict) else None,
+        "patchFile": ctx.patch.path.name,
+        "patchSha256": ctx.patch.sha256,
+        "status": ctx.status,
+        "startedAt": ctx.started_at.isoformat(timespec="seconds"),
+        "finishedAt": iso_now(),
+        "commitSha": ctx.commit_sha,
+        "archiveDir": rel_display(ctx.run_dir, ctx.workspace.workspace_root) if ctx.run_dir else None,
+        "report": rel_display(ctx.report_path, ctx.workspace.workspace_root) if ctx.report_path else None,
+        "autoResetPerformed": ctx.auto_reset_performed,
+        "autoResetTarget": ctx.auto_reset_target,
+        "autoResetCleanMode": ctx.auto_reset_clean_mode,
+        "autoResetError": ctx.auto_reset_error,
+        "badPatchDeleted": ctx.bad_patch_deleted,
+        "badPatchDeleteError": ctx.bad_patch_delete_error,
+        "utsProjectDir": rel_display(ctx.uts_project_dir, ctx.workspace.workspace_root) if ctx.uts_project_dir else None,
+        "utsError": ctx.uts_error,
+        "ignoredBytecodeFiles": ctx.ignored_bytecode_files,
+        "cleanedBytecodePaths": sorted(set(ctx.cleaned_bytecode_paths)),
+        "bytecodeCleanupError": ctx.bytecode_cleanup_error,
+    }
+    append_run_state(ctx.workspace, record)
+
+
+def warn_archive_size(ctx: RunContext, path: Path | None) -> None:
+    if not path or not path.exists():
+        return
+    size = path.stat().st_size
+    if size > ARCHIVE_SIZE_WARNING_BYTES:
+        ctx.archive_size_warnings.append(
+            f"Архив {rel_display(path, ctx.workspace.workspace_root)} большой: {size / (1024 * 1024):.1f} MiB"
+        )
+
+
+# ---------------------------------------------------------------------------
+# JSON payload helpers / Status command
+# ---------------------------------------------------------------------------
+
+
+def emit_json(data: dict[str, Any]) -> None:
+    print(json.dumps(data, ensure_ascii=False, indent=None, default=str))
+
+
+def path_text(path: Path | None) -> str | None:
+    return str(path) if path is not None else None
+
+
+def workspace_to_json(workspace: Workspace) -> dict[str, Any]:
+    return {
+        "projectRoot": path_text(workspace.project_root),
+        "workspaceRoot": path_text(workspace.workspace_root),
+        "patchesDir": path_text(workspace.patches_dir),
+        "archivesDir": path_text(workspace.archives_dir),
+        "userTestSpaceDir": path_text(workspace.uts_dir),
+        "stateDir": path_text(workspace.state_dir),
+        "stateFile": path_text(workspace.state_file),
+        "projectExists": workspace.project_root.exists(),
+        "patchesDirExists": workspace.patches_dir.is_dir(),
+        "archivesDirExists": workspace.archives_dir.is_dir(),
+        "userTestSpaceDirExists": workspace.uts_dir.is_dir(),
+        "stateFileExists": workspace.state_file.exists(),
+    }
+
+
+def patch_to_json(candidate: PatchCandidate | None, workspace: Workspace | None = None) -> dict[str, Any] | None:
+    if candidate is None:
+        return None
+    return {
+        "name": candidate.path.name,
+        "path": path_text(candidate.path),
+        "relativePath": rel_display(candidate.path, workspace.workspace_root) if workspace else candidate.path.name,
+        "sha256": candidate.sha256,
+        "patchId": candidate.patch_id,
+        "title": candidate.title,
+        "manifestError": candidate.manifest_error,
+        "createdAt": candidate.manifest.get("createdAt") if isinstance(candidate.manifest, dict) else None,
+        "sortKey": list(candidate.sort_key),
+    }
+
+
+def candidate_status_text(workspace: Workspace, state: dict[str, Any], candidate: PatchCandidate) -> str:
+    applied_run = find_state_run(state, candidate.sha256, candidate.patch_id)
+    if applied_run:
+        return f"уже применён локально ({applied_run.get('commitSha') or 'без коммита'})"
+    if patch_seen_in_git(workspace.project_root, candidate.sha256, candidate.patch_id):
+        return "уже присутствует в трейлерах недавних Git-коммитов"
+    if candidate.manifest_error:
+        return f"некорректный кандидат: {candidate.manifest_error}"
+    return "ожидает применения"
+
+
+def git_status_to_json(workspace: Workspace) -> dict[str, Any]:
+    info: dict[str, Any] = {
+        "available": git_available(),
+        "isRepository": (workspace.project_root / ".git").exists(),
+        "clean": None,
+        "statusShort": None,
+        "lastCommit": None,
+        "porcelain": "",
+        "branch": None,
+        "head": None,
+        "aheadBehind": None,
+        "remoteUrl": None,
+        "error": None,
+    }
+    if not info["available"]:
+        info["error"] = "git не найден"
+        return info
+    if not info["isRepository"]:
+        info["error"] = "корень проекта не является репозиторием Git"
+        return info
+    try:
+        porcelain = git_status_porcelain(workspace.project_root)
+        info["remoteUrl"] = git_remote_url(workspace.project_root, "origin")
+        info["porcelain"] = porcelain
+        info["clean"] = not porcelain.strip()
+        info["statusShort"] = git_status_short(workspace.project_root)
+        info["lastCommit"] = git_last_commit_summary(workspace.project_root)
+        info["branch"] = git_branch(workspace.project_root)
+        try:
+            info["head"] = git_head(workspace.project_root)
+        except DevctlError:
+            info["head"] = None
+            info["lastCommit"] = "нет коммитов"
+        if info["head"]:
+            ahead, behind, error = ahead_behind(workspace.project_root, "origin", str(info["branch"]))
+            info["aheadBehind"] = {
+                "remote": "origin",
+                "branch": info["branch"],
+                "ahead": ahead,
+                "behind": behind,
+                "error": error,
+            }
+        else:
+            info["aheadBehind"] = {
+                "remote": "origin",
+                "branch": info["branch"],
+                "ahead": None,
+                "behind": None,
+                "error": "локальных коммитов пока нет",
+            }
+    except DevctlError as exc:
+        info["error"] = str(exc)
+    return info
+
+
+def build_status_payload(workspace_arg: str | None = None) -> tuple[dict[str, Any], int]:
+    try:
+        workspace = discover_workspace(workspace_arg)
+    except DevctlError as exc:
+        return {"ok": False, "version": DEVCTL_VERSION, "error": str(exc)}, 2
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "version": DEVCTL_VERSION,
+        "workspace": workspace_to_json(workspace),
+        "workspaceConfig": workspace_config_upgrade_status(workspace),
+        "git": git_status_to_json(workspace),
+        "patches": {"count": 0, "latest": None, "items": []},
+        "state": {
+            "path": path_text(workspace.state_file),
+            "exists": workspace.state_file.exists(),
+            "runsCount": 0,
+            "latestFailedRun": None,
+        },
+        "archives": {"latestDir": latest_archive_dir(workspace)},
+    }
+
+    state = {"version": STATE_VERSION, "runs": []}
+    try:
+        state = load_state(workspace)
+    except DevctlError as exc:
+        payload["state"]["error"] = str(exc)
+
+    candidates = list_patch_candidates(workspace)
+    items: list[dict[str, Any]] = []
+    for candidate in candidates[:20]:
+        item = patch_to_json(candidate, workspace) or {}
+        item["status"] = candidate_status_text(workspace, state, candidate)
+        items.append(item)
+    latest_candidate = find_latest_unapplied_patch(workspace, state, candidates)
+    latest = patch_to_json(latest_candidate, workspace) if latest_candidate else None
+    if latest:
+        latest["status"] = candidate_status_text(workspace, state, latest_candidate)
+    payload["patches"] = {
+        "count": len(candidates),
+        "unappliedCount": sum(1 for item in items if item.get("status") == "ожидает применения"),
+        "latest": latest,
+        "items": items,
+    }
+
+    runs = state.get("runs", []) if isinstance(state, dict) else []
+    payload["state"].update(
+        {
+            "runsCount": len(runs),
+            "latestFailedRun": latest_failed_run(state),
+        }
+    )
+    return payload, 0
+
+
+def status_command(args: argparse.Namespace | None = None) -> int:
+    if args is not None and getattr(args, "json", False):
+        payload, code = build_status_payload(workspace_arg_from_namespace(args))
+        emit_json(payload)
+        return code
+
+    try:
+        workspace = discover_workspace(workspace_arg_from_namespace(args))
+    except DevctlError as exc:
+        print(f"[ОШИБКА] {exc}")
+        return 2
+
+    print_header("статус devctl")
+    print(f"версия devctl: {DEVCTL_VERSION}")
+    print(f"Корень проекта:       {workspace.project_root}")
+    print(f"Корень рабочей области: {workspace.workspace_root}")
+    print(f"Каталог патчей:        {workspace.patches_dir} {'[нет]' if not workspace.patches_dir.is_dir() else ''}")
+    print(f"Каталог архивов:       {workspace.archives_dir} {'[нет]' if not workspace.archives_dir.is_dir() else ''}")
+    print(f"Каталог UTS:           {workspace.uts_dir} {'[нет]' if not workspace.uts_dir.is_dir() else ''}")
+    config_status = workspace_config_upgrade_status(workspace)
+    if config_status.get("upgradeAvailable"):
+        print("Конфигурация workspace: рекомендуется `devctl init --upgrade`")
+        missing = []
+        missing.extend(config_status.get("missingFields") or [])
+        missing.extend(config_status.get("missingArchiveExcludes") or [])
+        missing.extend(config_status.get("missingDirs") or [])
+        if missing:
+            print(f"Нужно добавить/создать: {', '.join(str(item) for item in missing)}")
+
+    print_header("git")
+    if not git_available():
+        print("git: не найден")
+    elif not (workspace.project_root / ".git").exists():
+        print("git: корень проекта не является репозиторием Git")
+    else:
+        print(git_status_short(workspace.project_root) or "неизвестно")
+        print(f"Последний коммит: {git_last_commit_summary(workspace.project_root)}")
+        status = git_status_porcelain(workspace.project_root)
+        print("Рабочее дерево: чистое" if not status.strip() else "Рабочее дерево: есть изменения")
+        if status.strip():
+            print("Сводка изменений:")
+            for line in status.splitlines()[:50]:
+                print(f"  {line}")
+            if len(status.splitlines()) > 50:
+                print("  ...")
+            dirty_lines = status.splitlines()
+            if any("tools/" in line or "tools\\" in line for line in dirty_lines) and any(
+                "docs/devctl/" in line or "docs\\devctl\\" in line for line in dirty_lines
+            ):
+                print("Подсказка: это похоже на состояние bootstrap/обновления devctl. Сделайте commit/push перед повторным start.")
+        try:
+            branch = git_branch(workspace.project_root)
+            # Do not fetch in status; just inspect existing remote ref if present.
+            ahead, behind, error = ahead_behind(workspace.project_root, "origin", branch)
+            if error:
+                print(f"Ahead/behind: недоступно ({error})")
+            else:
+                print(f"Ahead/behind origin/{branch}: ahead={ahead}, behind={behind}")
+        except DevctlError as exc:
+            print(f"Ahead/behind: недоступно ({exc})")
+
+    print_header("патчи")
+    state = {"version": STATE_VERSION, "runs": []}
+    try:
+        state = load_state(workspace)
+    except DevctlError as exc:
+        print(f"Реестр состояния: ошибка: {exc}")
+    candidates = list_patch_candidates(workspace)
+    if not candidates:
+        print("Zip-файлы патчей не найдены.")
+    else:
+        latest = candidates[0]
+        status_text = candidate_status_text(workspace, state, latest)
+        print(f"Последний кандидат: {latest.path.name}")
+        print(f"ID патча:           {latest.patch_id or 'неизвестно'}")
+        print(f"Название:           {latest.title or 'неизвестно'}")
+        print(f"SHA-256:            {latest.sha256 or 'неизвестно'}")
+        print(f"Статус:             {status_text}")
+        print(f"Всего кандидатов:   {len(candidates)}")
+
+    print_header("состояние")
+    runs = state.get("runs", []) if isinstance(state, dict) else []
+    print(f"Файл состояния: {workspace.state_file} {'[нет]' if not workspace.state_file.exists() else ''}")
+    print(f"Записано запусков: {len(runs)}")
+    failed = latest_failed_run(state)
+    if failed:
+        print(f"Последний неуспешный запуск: {failed.get('status')} / {failed.get('patchId')} / {failed.get('report')}")
+    latest_archive = latest_archive_dir(workspace)
+    if latest_archive:
+        print(f"Последний каталог архивов: {latest_archive}")
+    return 0
+
+
+def reset_command(args: argparse.Namespace) -> int:
+    json_enabled = bool(getattr(args, "json", False))
+    payload: dict[str, Any] = {"ok": False, "version": DEVCTL_VERSION, "status": "reset_failed"}
+    try:
+        workspace = discover_workspace(workspace_arg_from_namespace(args))
+        target = str(getattr(args, "target", "HEAD") or "HEAD")
+        clean_mode = str(getattr(args, "clean_mode", "fd") or "fd")
+        state = load_state(workspace)
+        patch_deleted: str | None = None
+        patch_delete_error: str | None = None
+
+        reset_info = reset_workspace_project(workspace, target=target, clean_mode=clean_mode)
+
+        if not bool(getattr(args, "keep_patch", False)):
+            explicit_patch = getattr(args, "delete_patch", None)
+            patch_path = safe_patch_path(workspace, explicit_patch) if explicit_patch else latest_failed_patch_path(workspace, state)
+            if patch_path is not None:
+                try:
+                    patch_deleted = delete_patch_file(patch_path, workspace)
+                except Exception as exc:
+                    patch_delete_error = str(exc)
+
+        status_after = str(reset_info.get("gitStatusAfter") or "")
+        payload.update(
+            {
+                "ok": True,
+                "status": "reset",
+                "workspace": workspace_to_json(workspace),
+                "target": target,
+                "cleanMode": clean_mode,
+                "patchDeleted": patch_deleted,
+                "patchDeleteError": patch_delete_error,
+                "gitStatusBefore": reset_info.get("gitStatusBefore"),
+                "gitStatusAfter": status_after,
+            }
+        )
+
+        print_header("devctl reset")
+        print(f"Проект:        {workspace.project_root}")
+        print(f"Цель reset:    {target}")
+        print("Git reset:     ok")
+        print(f"Git clean:     ok (-{clean_mode})")
+        if patch_deleted:
+            print(f"Плохой патч:   {patch_deleted} удалён")
+        elif patch_delete_error:
+            print(f"Плохой патч:   ошибка удаления: {patch_delete_error}")
+        elif bool(getattr(args, "keep_patch", False)):
+            print("Плохой патч:   сохранён (--keep-patch)")
+        else:
+            print("Плохой патч:   не найден для auto-удаления")
+        print("Статус Git:    clean" if not status_after.strip() else "Статус Git:    есть изменения")
+        maybe_emit_json(json_enabled, payload)
+        return 0
+    except DevctlError as exc:
+        payload["error"] = str(exc)
+        if json_enabled:
+            emit_json(payload)
+        else:
+            print(f"[ОШИБКА] {exc}")
+        return 2
+
+
+def latest_archive_dir(workspace: Workspace) -> str | None:
+    if not workspace.archives_dir.is_dir():
+        return None
+    dirs = [path for path in workspace.archives_dir.iterdir() if path.is_dir()]
+    if not dirs:
+        return None
+    dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return rel_display(dirs[0], workspace.workspace_root)
+
+
+def start_result_payload(
+    ctx: RunContext | None,
+    *,
+    status: str | None = None,
+    message: str | None = None,
+    returncode: int = 0,
+) -> dict[str, Any]:
+    if ctx is None:
+        return {
+            "ok": returncode == 0,
+            "version": DEVCTL_VERSION,
+            "status": status or ("ok" if returncode == 0 else "failed"),
+            "message": message,
+            "returncode": returncode,
+            "reportPath": None,
+            "archivePath": None,
+            "commitSha": None,
+            "pushResult": None,
+            "autoResetPerformed": False,
+            "badPatchDeleted": None,
+            "utsProjectDir": None,
+            "patch": None,
+            "errors": [] if not message else [message] if returncode else [],
+            "warnings": [],
+            "ignoredBytecodeFiles": [],
+            "cleanedBytecodePaths": [],
+            "bytecodeCleanupError": None,
+        }
+    return {
+        "ok": returncode == 0 and ctx.status in {"applied", "running", "noop"},
+        "version": DEVCTL_VERSION,
+        "status": status or ctx.status,
+        "message": message,
+        "returncode": returncode,
+        "reportPath": path_text(ctx.report_path),
+        "archivePath": path_text(ctx.run_dir),
+        "commitSha": ctx.commit_sha,
+        "pushResult": ctx.push_result,
+        "patch": patch_to_json(ctx.patch, ctx.workspace),
+        "pushEnabled": ctx.push_enabled,
+        "pushRemote": ctx.push_remote,
+        "pushBranch": ctx.push_branch,
+        "autoResetPerformed": ctx.auto_reset_performed,
+        "autoResetTarget": ctx.auto_reset_target,
+        "autoResetCleanMode": ctx.auto_reset_clean_mode,
+        "autoResetError": ctx.auto_reset_error,
+        "badPatchDeleted": ctx.bad_patch_deleted,
+        "badPatchDeleteError": ctx.bad_patch_delete_error,
+        "utsProjectDir": path_text(ctx.uts_project_dir),
+        "utsError": ctx.uts_error,
+        "copiedFiles": ctx.copied_files,
+        "deletedPaths": ctx.deleted_paths,
+        "ignoredBytecodeFiles": ctx.ignored_bytecode_files,
+        "cleanedBytecodePaths": sorted(set(ctx.cleaned_bytecode_paths)),
+        "bytecodeCleanupError": ctx.bytecode_cleanup_error,
+        "errors": ctx.errors,
+        "warnings": ctx.warnings,
+    }
+
+
+def emit_start_json_result(args: argparse.Namespace, ctx: RunContext | None, *, status: str | None = None, message: str | None = None, returncode: int = 0) -> None:
+    if getattr(args, "json", False):
+        emit_json(start_result_payload(ctx, status=status, message=message, returncode=returncode))
+
+
+# ---------------------------------------------------------------------------
+# Start command
+# ---------------------------------------------------------------------------
+
+
+def prepare_context(workspace: Workspace, state: dict[str, Any]) -> RunContext | None:
+    candidates = list_patch_candidates(workspace)
+    if not candidates:
+        print("Zip-файлы патчей не найдены. Делать нечего.")
+        return None
+    patch = find_latest_unapplied_patch(workspace, state, candidates)
+    if patch is None:
+        latest = candidates[0]
+        applied = find_state_run(state, latest.sha256, latest.patch_id)
+        print("Неприменённых патчей не найдено. Делать нечего.")
+        if applied:
+            print(f"Последний патч уже применён: {latest.path.name} -> {applied.get('commitSha') or 'без коммита'}")
+        else:
+            print(f"Последний патч уже виден в недавней истории Git: {latest.path.name}")
+        return None
+    manifest = patch.manifest
+    if patch.manifest_error or manifest is None:
+        # Minimal context with synthetic manifest for diagnostic report.
+        diagnostic = {
+            "formatVersion": 1,
+            "patchId": patch.path.stem,
+            "title": "Некорректный патч",
+            "summary": patch.manifest_error or "Не удалось прочитать manifest.json",
+            "apply": {"filesRoot": "files", "delete": []},
+            "checks": [],
+            "commit": {"enabled": False, "message": "некорректный патч"},
+            "push": {"enabled": False},
+        }
+        ctx = RunContext(workspace=workspace, patch=patch, manifest=diagnostic, started_at=now_utc())
+        ctx.status = "invalid_patch"
+        ctx.errors.append(patch.manifest_error or "Некорректный патч")
+        ctx.run_dir = create_run_dir(workspace, diagnostic, patch.sha256)
+        ctx.logs_dir = ctx.run_dir / "logs"
+        ctx.logs_dir.mkdir(parents=True, exist_ok=True)
+        write_report(ctx)
+        update_state_from_context(ctx)
+        print(f"Некорректный патч: {patch.path.name}")
+        print(f"Отчёт: {ctx.report_path}")
+        return ctx
+    return RunContext(workspace=workspace, patch=patch, manifest=manifest, started_at=now_utc())
+
+
+def start_command(args: argparse.Namespace) -> int:
+    try:
+        workspace = discover_workspace(workspace_arg_from_namespace(args))
+        validate_workspace_for_start(workspace)
+        state = load_state(workspace)
+        ctx = prepare_context(workspace, state)
+        if ctx is None:
+            emit_start_json_result(args, None, status="noop", message="Неприменённых патчей не найдено или каталог patches пуст.", returncode=0)
+            return 0
+        if ctx.status != "running":
+            emit_start_json_result(args, ctx, returncode=2)
+            return 2
+
+        try:
+            validate_manifest(ctx.manifest)
+            validate_patch_files_root(ctx.patch, ctx.manifest)
+
+            # Git/environment prerequisites are deliberately checked before creating a pre archive or applying patch.
+            validate_git_preflight(workspace, ctx.manifest, ctx, no_push=args.no_push)
+            validate_check_prerequisites(workspace.project_root, ctx.manifest)
+
+            ctx.run_dir = create_run_dir(workspace, ctx.manifest, ctx.patch.sha256)
+            ctx.logs_dir = ctx.run_dir / "logs"
+            ctx.logs_dir.mkdir(parents=True, exist_ok=True)
+            copy_manifest_to_logs(ctx)
+            write_log(ctx, "git-status-before.log", ctx.git_status_before or git_status_porcelain(workspace.project_root))
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            slug = slugify(
+                (ctx.manifest.get("archive") if isinstance(ctx.manifest.get("archive"), dict) else {}).get("nameSlug")
+                or ctx.manifest.get("patchId")
+            )
+            pre_name = archive_name(workspace.project_root.name, timestamp, "pre", f"before_{slug}")
+            ctx.pre_archive, _ = create_project_archive(
+                workspace,
+                ctx.run_dir / pre_name,
+                manifest=ctx.manifest,
+            )
+            warn_archive_size(ctx, ctx.pre_archive)
+
+            ctx.applied_started = True
+            apply_deletions(ctx)
+            safe_copy_files(ctx)
+            clean_python_bytecode_for_start(ctx, "apply")
+            ctx.git_status_after_apply = git_status_porcelain(workspace.project_root)
+            write_log(ctx, "git-status-after-apply.log", ctx.git_status_after_apply)
+
+            run_checks(ctx)
+            clean_python_bytecode_for_start(ctx, "checks")
+            ctx.git_status_after_checks = git_status_porcelain(workspace.project_root)
+            write_log(ctx, "git-status-after-checks.log", ctx.git_status_after_checks)
+            ctx.changes_introduced_by_checks = new_changes_after_checks(
+                ctx.git_status_after_apply,
+                ctx.git_status_after_checks,
+            )
+            if ctx.changes_introduced_by_checks:
+                ctx.warnings.append("Проверки внесли дополнительные изменения Git; см. раздел отчёта 'Новые изменения, внесённые проверками'.")
+
+            try:
+                commit_and_push(ctx)
+            except DevctlError as exc:
+                if str(exc).startswith("PUSH_FAILED") or ctx.status == "push_failed":
+                    ctx.status = "push_failed"
+                else:
+                    ctx.status = "failed"
+                ctx.errors.append(str(exc))
+                failed_name = archive_name(workspace.project_root.name, timestamp, "failed", f"after_failed_{slug}")
+                ctx.failed_archive, _ = create_project_archive(workspace, ctx.run_dir / failed_name, manifest=ctx.manifest)
+                warn_archive_size(ctx, ctx.failed_archive)
+                if ctx.status != "push_failed":
+                    auto_reset_after_failed_start(ctx, delete_bad_patch=not getattr(args, "keep_failed_patch", False))
+                write_report(ctx)
+                update_state_from_context(ctx)
+                if ctx.auto_reset_performed:
+                    print("[AUTO-RESET] Проект автоматически откатан после ошибки; failed-архив сохранён до отката.")
+                print(f"[ОШИБКА] {ctx.status}. Отчёт: {ctx.report_path}")
+                emit_start_json_result(args, ctx, returncode=1)
+                return 1
+
+            gitsha = short_sha(ctx.commit_sha or git_head(workspace.project_root))
+            post_name = archive_name(workspace.project_root.name, timestamp, "post", f"after_{slug}", gitsha)
+            ctx.post_archive, _ = create_project_archive(workspace, ctx.run_dir / post_name, manifest=ctx.manifest)
+            warn_archive_size(ctx, ctx.post_archive)
+            populate_user_test_space(ctx)
+            ctx.status = "applied"
+            write_report(ctx)
+            update_state_from_context(ctx)
+            print(f"[OK] Патч применён: {ctx.manifest.get('patchId')}")
+            if ctx.commit_sha:
+                print(f"Коммит: {ctx.commit_sha}")
+            if ctx.post_archive:
+                print(f"Архив: {ctx.post_archive}")
+            print(f"Отчёт: {ctx.report_path}")
+            emit_start_json_result(args, ctx, returncode=0)
+            return 0
+
+        except InvalidPatchError as exc:
+            ctx.status = "invalid_patch"
+            ctx.errors.append(str(exc))
+            if not ctx.run_dir:
+                ctx.run_dir = create_run_dir(workspace, ctx.manifest, ctx.patch.sha256)
+                ctx.logs_dir = ctx.run_dir / "logs"
+                ctx.logs_dir.mkdir(parents=True, exist_ok=True)
+                copy_manifest_to_logs(ctx)
+            if ctx.applied_started:
+                auto_reset_after_failed_start(ctx, delete_bad_patch=not getattr(args, "keep_failed_patch", False))
+            write_report(ctx)
+            update_state_from_context(ctx)
+            print(f"[НЕКОРРЕКТНЫЙ ПАТЧ] {exc}")
+            print(f"Отчёт: {ctx.report_path}")
+            emit_start_json_result(args, ctx, returncode=2)
+            return 2
+
+        except PreflightError as exc:
+            ctx.status = "preflight_failed"
+            ctx.errors.append(str(exc))
+            if not ctx.run_dir:
+                ctx.run_dir = create_run_dir(workspace, ctx.manifest, ctx.patch.sha256)
+                ctx.logs_dir = ctx.run_dir / "logs"
+                ctx.logs_dir.mkdir(parents=True, exist_ok=True)
+                copy_manifest_to_logs(ctx)
+                write_log(ctx, "git-status-before.log", ctx.git_status_before or git_status_porcelain(workspace.project_root))
+            write_report(ctx)
+            update_state_from_context(ctx)
+            print(f"[ПРЕДПОЛЁТНАЯ ПРОВЕРКА НЕ ПРОШЛА] {exc}")
+            print(f"Отчёт: {ctx.report_path}")
+            emit_start_json_result(args, ctx, returncode=2)
+            return 2
+
+        except CheckFailedError as exc:
+            ctx.status = "failed"
+            ctx.errors.append(str(exc))
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            slug = slugify(
+                (ctx.manifest.get("archive") if isinstance(ctx.manifest.get("archive"), dict) else {}).get("nameSlug")
+                or ctx.manifest.get("patchId")
+            )
+            ctx.git_status_after_checks = git_status_porcelain(workspace.project_root)
+            write_log(ctx, "git-status-after-checks.log", ctx.git_status_after_checks)
+            ctx.changes_introduced_by_checks = new_changes_after_checks(
+                ctx.git_status_after_apply,
+                ctx.git_status_after_checks,
+            )
+            failed_name = archive_name(workspace.project_root.name, timestamp, "failed", f"after_failed_{slug}")
+            ctx.failed_archive, _ = create_project_archive(workspace, ctx.run_dir / failed_name, manifest=ctx.manifest)
+            warn_archive_size(ctx, ctx.failed_archive)
+            auto_reset_after_failed_start(ctx, delete_bad_patch=not getattr(args, "keep_failed_patch", False))
+            write_report(ctx)
+            update_state_from_context(ctx)
+            if ctx.auto_reset_performed:
+                print("[AUTO-RESET] Проект автоматически откатан после failed checks; failed-архив сохранён до отката.")
+            print(f"[ПРОВЕРКА НЕ ПРОШЛА] {exc}")
+            print(f"Отчёт: {ctx.report_path}")
+            emit_start_json_result(args, ctx, returncode=1)
+            return 1
+
+    except KeyboardInterrupt:
+        print("\n[ПРЕРВАНО] devctl прерван пользователем.")
+        # Лучшее возможное сохранение отчёта, если контекст есть в locals().
+        ctx_obj = locals().get("ctx")
+        if isinstance(ctx_obj, RunContext):
+            ctx_obj.status = "interrupted"
+            ctx_obj.errors.append("Прервано пользователем")
+            if ctx_obj.applied_started and ctx_obj.run_dir:
+                try:
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    slug = slugify(ctx_obj.manifest.get("patchId"))
+                    failed_name = archive_name(ctx_obj.workspace.project_root.name, timestamp, "failed", f"after_interrupted_{slug}")
+                    ctx_obj.failed_archive, _ = create_project_archive(
+                        ctx_obj.workspace,
+                        ctx_obj.run_dir / failed_name,
+                        manifest=ctx_obj.manifest,
+                    )
+                except Exception as exc:
+                    ctx_obj.warnings.append(f"Не удалось создать архив состояния после прерывания: {exc}")
+            try:
+                if ctx_obj.applied_started and not ctx_obj.commit_sha:
+                    auto_reset_after_failed_start(ctx_obj, delete_bad_patch=not getattr(args, "keep_failed_patch", False))
+                    if ctx_obj.auto_reset_performed:
+                        print("[AUTO-RESET] Проект автоматически откатан после прерывания.")
+                write_report(ctx_obj)
+                update_state_from_context(ctx_obj)
+                print(f"Отчёт: {ctx_obj.report_path}")
+            except Exception as exc:
+                print(f"Не удалось записать отчёт о прерывании: {exc}")
+        emit_start_json_result(args, ctx_obj if isinstance(ctx_obj, RunContext) else None, status="interrupted", message="devctl прерван пользователем", returncode=130)
+        return 130
+    except DevctlError as exc:
+        print(f"[ОШИБКА] {exc}")
+        emit_start_json_result(args, None, status="error", message=str(exc), returncode=2)
+        return 2
+
+
+
+# ---------------------------------------------------------------------------
+# Init / inspect / plan commands
+# ---------------------------------------------------------------------------
+
+
+def posix_rel_or_dot(path: Path, base: Path) -> str:
+    try:
+        rel = path.resolve().relative_to(base.resolve())
+        return rel.as_posix() or "."
+    except Exception:
+        return path.as_posix()
+
+
+def maybe_emit_json(enabled: bool, payload: dict[str, Any]) -> None:
+    if enabled:
+        print(json.dumps(payload, ensure_ascii=False, sort_keys=True))
+
+
+def command_error_summary(result: CommandResult) -> str:
+    return result.stderr.strip() or result.stdout.strip() or f"код возврата {result.returncode}"
+
+
+def directory_has_entries(path: Path) -> bool:
+    try:
+        return any(path.iterdir())
+    except FileNotFoundError:
+        return False
+
+
+def local_branch_exists(project_root: Path, branch: str) -> bool:
+    result = git(project_root, ["show-ref", "--verify", f"refs/heads/{branch}"])
+    return result.returncode == 0
+
+
+def has_git_commit(project_root: Path) -> bool:
+    result = git(project_root, ["rev-parse", "--verify", "HEAD"])
+    return result.returncode == 0
+
+
+def set_origin_remote(project_root: Path, remote_url: str, result: dict[str, Any]) -> bool:
+    existing_remote = git(project_root, ["remote", "get-url", "origin"])
+    if existing_remote.returncode == 0:
+        set_result = git(project_root, ["remote", "set-url", "origin", remote_url])
+        action = "set-url"
+    else:
+        set_result = git(project_root, ["remote", "add", "origin", remote_url])
+        action = "add"
+    if set_result.returncode != 0:
+        result["errors"].append(f"git remote {action} origin завершился ошибкой: {command_error_summary(set_result)}")
+        return False
+    result["remoteLinked"] = True
+    result.setdefault("operations", []).append(f"remote {action} origin")
+    return True
+
+
+def fetch_origin(project_root: Path, result: dict[str, Any]) -> bool:
+    fetch_result = git(project_root, ["fetch", "--prune", "origin"], timeout=300)
+    if fetch_result.returncode != 0:
+        result["errors"].append(f"git fetch --prune origin завершился ошибкой: {command_error_summary(fetch_result)}")
+        return False
+    result.setdefault("operations", []).append("fetch --prune origin")
+    return True
+
+
+def ensure_requested_branch(project_root: Path, branch: str, result: dict[str, Any]) -> bool:
+    remote_branch_exists = remote_ref_exists(project_root, "origin", branch)
+    current_branch: str | None = None
+    try:
+        current_branch = git_branch(project_root)
+    except DevctlError:
+        current_branch = None
+
+    if remote_branch_exists:
+        if current_branch != branch:
+            if local_branch_exists(project_root, branch):
+                checkout = git(project_root, ["checkout", branch])
+            else:
+                checkout = git(project_root, ["checkout", "-B", branch, f"origin/{branch}"])
+            if checkout.returncode != 0:
+                result["errors"].append(f"git checkout {branch} завершился ошибкой: {command_error_summary(checkout)}")
+                return False
+            result.setdefault("operations", []).append(f"checkout {branch}")
+        result["branch"] = branch
+        return True
+
+    if not has_git_commit(project_root):
+        symbolic = git(project_root, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
+        if symbolic.returncode != 0:
+            result["warnings"].append(command_error_summary(symbolic))
+        result["branch"] = branch
+        result["warnings"].append(
+            f"Remote-ветка origin/{branch} пока не найдена; репозиторий выглядит пустым, HEAD подготовлен для ветки {branch}."
+        )
+        return True
+
+    if current_branch == branch:
+        result["branch"] = branch
+        result["warnings"].append(f"Remote-ветка origin/{branch} не найдена; pull пропущен.")
+        return True
+
+    result["errors"].append(
+        f"Remote-ветка origin/{branch} не найдена. Укажите существующую ветку или загрузите репозиторий вручную."
+    )
+    return False
+
+
+def pull_requested_branch(project_root: Path, branch: str, result: dict[str, Any]) -> bool:
+    if not remote_ref_exists(project_root, "origin", branch):
+        result.setdefault("pullSkipped", True)
+        return True
+    pull_result = git(project_root, ["pull", "--ff-only", "origin", branch], timeout=300)
+    if pull_result.returncode != 0:
+        result["errors"].append(f"git pull --ff-only origin {branch} завершился ошибкой: {command_error_summary(pull_result)}")
+        return False
+    result.setdefault("operations", []).append(f"pull --ff-only origin {branch}")
+    result["pulled"] = True
+    return True
+
+
+def clone_remote_project(project_root: Path, *, branch: str, remote_url: str, result: dict[str, Any]) -> bool:
+    if project_root.exists() and not project_root.is_dir():
+        result["errors"].append(f"Путь project не является каталогом: {project_root}")
+        return False
+    if project_root.exists() and directory_has_entries(project_root):
+        result["errors"].append(
+            f"Нельзя клонировать remote в непустой каталог без .git: {project_root}. Выберите пустой workspace или очистите project/."
+        )
+        return False
+
+    project_root.parent.mkdir(parents=True, exist_ok=True)
+    clone_result = run_command(["git", "clone", remote_url, str(project_root)], project_root.parent, timeout=600)
+    if clone_result.returncode != 0:
+        result["errors"].append(f"git clone завершился ошибкой: {command_error_summary(clone_result)}")
+        return False
+
+    result["initialized"] = True
+    result["remoteLinked"] = True
+    result["cloned"] = True
+    result["operation"] = "clone"
+    result.setdefault("operations", []).append("clone")
+
+    # Явно делаем fetch/pull даже после clone: так init ведёт себя одинаково
+    # для нового и уже существующего локального project/.
+    if not fetch_origin(project_root, result):
+        return False
+    if not ensure_requested_branch(project_root, branch, result):
+        return False
+    if not pull_requested_branch(project_root, branch, result):
+        return False
+    result["synced"] = True
+    return True
+
+
+def sync_existing_git_project(project_root: Path, *, branch: str, remote_url: str, result: dict[str, Any]) -> bool:
+    result["initialized"] = True
+    result["operation"] = "fetch-pull"
+    if not set_origin_remote(project_root, remote_url, result):
+        return False
+    if not fetch_origin(project_root, result):
+        return False
+    if not ensure_requested_branch(project_root, branch, result):
+        return False
+    if not pull_requested_branch(project_root, branch, result):
+        return False
+    result["synced"] = True
+    return True
+
+
+def init_empty_git_repository(project_root: Path, *, branch: str, result: dict[str, Any]) -> bool:
+    git_dir = project_root / ".git"
+    if git_dir.exists():
+        result["initialized"] = True
+        try:
+            result["branch"] = git_branch(project_root)
+        except DevctlError:
+            result["branch"] = branch
+        return True
+
+    init_result = git(project_root, ["init", "-b", branch])
+    if init_result.returncode != 0:
+        # Старые версии Git могут не знать `git init -b`. Тогда создаём
+        # репозиторий обычным способом и вручную переводим HEAD на main.
+        init_result = git(project_root, ["init"])
+        if init_result.returncode == 0:
+            symbolic = git(project_root, ["symbolic-ref", "HEAD", f"refs/heads/{branch}"])
+            if symbolic.returncode != 0:
+                result["warnings"].append(command_error_summary(symbolic))
+    if init_result.returncode != 0:
+        result["errors"].append(command_error_summary(init_result) or "git init завершился ошибкой")
+        return False
+    result["initialized"] = True
+    result["branch"] = branch
+    result["operation"] = "init"
+    result.setdefault("operations", []).append("init")
+    return True
+
+
+def init_git_repository(project_root: Path, *, branch: str | None, remote_url: str | None) -> dict[str, Any]:
+    desired_branch = (branch or "main").strip() or "main"
+    remote_url = (remote_url or "").strip() or None
+    result: dict[str, Any] = {
+        "requested": True,
+        "available": git_available(),
+        "initialized": False,
+        "synced": False,
+        "cloned": False,
+        "pulled": False,
+        "pullSkipped": False,
+        "operation": None,
+        "operations": [],
+        "branch": desired_branch,
+        "remote": "origin" if remote_url else None,
+        "remoteUrl": remote_url or None,
+        "remoteLinked": False,
+        "warnings": [],
+        "errors": [],
+    }
+    if not result["available"]:
+        result["errors"].append("команда git не найдена")
+        return result
+
+    project_root.mkdir(parents=True, exist_ok=True)
+
+    if remote_url:
+        git_dir = project_root / ".git"
+        if git_dir.exists():
+            sync_existing_git_project(project_root, branch=desired_branch, remote_url=remote_url, result=result)
+        else:
+            clone_remote_project(project_root, branch=desired_branch, remote_url=remote_url, result=result)
+        return result
+
+    init_empty_git_repository(project_root, branch=desired_branch, result=result)
+    return result
+
+
+
+def default_git_config(branch: str | None = None) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "enabled": True,
+        "autoCommit": True,
+        "autoPush": True,
+        "remote": "origin",
+        "requireClean": True,
+        "requireUpToDate": True,
+    }
+    if branch:
+        config["branch"] = str(branch)
+    return config
+
+
+def normalize_workspace_config_for_upgrade(
+    config: dict[str, Any],
+    *,
+    project_dir: str,
+    patches_dir: str,
+    archives_dir: str,
+    uts_dir: str,
+    branch: str | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    """Non-destructively add fields that new devctl versions expect.
+
+    The function preserves unknown/custom keys and only fills missing defaults or
+    augments archive exclusions. It never rewrites projectDir/patchesDir/etc. when
+    they already exist, which makes `devctl init --upgrade` safe for old workspaces.
+    """
+    upgraded = dict(config)
+    changes: list[str] = []
+
+    def ensure(key: str, value: Any) -> None:
+        if key not in upgraded or upgraded.get(key) in (None, ""):
+            upgraded[key] = value
+            changes.append(key)
+
+    ensure("version", 1)
+    ensure("projectDir", project_dir)
+    ensure("patchesDir", patches_dir)
+    ensure("archivesDir", archives_dir)
+    ensure("userTestSpaceDir", uts_dir)
+
+    git_config = upgraded.get("git")
+    if not isinstance(git_config, dict):
+        upgraded["git"] = default_git_config(branch)
+        changes.append("git")
+
+    archive_config = upgraded.get("archive")
+    if not isinstance(archive_config, dict):
+        archive_config = {}
+        upgraded["archive"] = archive_config
+        changes.append("archive")
+    exclude = archive_config.get("exclude")
+    if not isinstance(exclude, list):
+        exclude = []
+        archive_config["exclude"] = exclude
+        changes.append("archive.exclude")
+    required_excludes = WORKSPACE_ARCHIVE_REQUIRED_EXCLUDES
+    existing = {str(item) for item in exclude}
+    for item in required_excludes:
+        if item not in existing:
+            exclude.append(item)
+            existing.add(item)
+            changes.append(f"archive.exclude:{item}")
+
+    profiles = upgraded.get("checkProfiles")
+    if not isinstance(profiles, dict):
+        upgraded["checkProfiles"] = {"default": []}
+        changes.append("checkProfiles")
+    elif "default" not in profiles:
+        profiles["default"] = []
+        changes.append("checkProfiles.default")
+
+    return upgraded, changes
+
+
+def workspace_config_upgrade_status(workspace: Workspace) -> dict[str, Any]:
+    config_path = workspace.state_dir / "workspace.json"
+    info: dict[str, Any] = {
+        "path": str(config_path),
+        "exists": config_path.is_file(),
+        "upgradeAvailable": False,
+        "missingFields": [],
+        "missingArchiveExcludes": [],
+        "missingDirs": [],
+        "error": None,
+    }
+    if not config_path.is_file():
+        info["upgradeAvailable"] = True
+        info["missingFields"] = [".devctl/workspace.json"]
+    else:
+        try:
+            config = read_json_file(config_path)
+            if not isinstance(config, dict):
+                raise DevctlError("workspace.json должен быть JSON-объектом")
+            missing_fields = [key for key in ("version", "projectDir", "patchesDir", "archivesDir", "userTestSpaceDir") if key not in config]
+            info["missingFields"] = missing_fields
+            archive = config.get("archive") if isinstance(config.get("archive"), dict) else {}
+            exclude = archive.get("exclude") if isinstance(archive, dict) else []
+            exclude_values = {str(item) for item in exclude} if isinstance(exclude, list) else set()
+            info["missingArchiveExcludes"] = [item for item in WORKSPACE_ARCHIVE_REQUIRED_EXCLUDES if item not in exclude_values]
+        except Exception as exc:
+            info["error"] = str(exc)
+            info["upgradeAvailable"] = True
+    dirs = []
+    for label, path in (("patches", workspace.patches_dir), ("archives", workspace.archives_dir), ("UserTestSpace", workspace.uts_dir), (".devctl", workspace.state_dir)):
+        if not path.is_dir():
+            dirs.append(label)
+    if not workspace.state_file.exists():
+        dirs.append(".devctl/state.json")
+    info["missingDirs"] = dirs
+    if info["missingFields"] or info["missingArchiveExcludes"] or info["missingDirs"]:
+        info["upgradeAvailable"] = True
+    return info
+
+
+def upgrade_workspace_command(args: argparse.Namespace) -> int:
+    init_workspace_arg = getattr(args, "workspace", None) or getattr(args, "workspace_override", None)
+    workspace_root = expand_user_path(init_workspace_arg).resolve() if init_workspace_arg else Path.cwd().resolve()
+    state_dir = workspace_root / ".devctl"
+    config_path = state_dir / "workspace.json"
+    json_enabled = bool(getattr(args, "json", False))
+
+    payload: dict[str, Any] = {
+        "ok": False,
+        "version": DEVCTL_VERSION,
+        "mode": "upgrade",
+        "workspaceRoot": str(workspace_root),
+        "configPath": str(config_path),
+        "created": [],
+        "updatedFields": [],
+        "warnings": [],
+        "changed": False,
+    }
+
+    if not config_path.exists():
+        message = f"Конфигурация рабочей области не найдена: {config_path}. Для нового workspace используйте обычный `devctl init`."
+        payload["error"] = message
+        maybe_emit_json(json_enabled, payload)
+        raise DevctlError(message)
+
+    config = read_json_file(config_path)
+    if not isinstance(config, dict):
+        message = f"workspace.json должен быть JSON-объектом: {config_path}"
+        payload["error"] = message
+        maybe_emit_json(json_enabled, payload)
+        raise DevctlError(message)
+
+    project_dir_value = str(config.get("projectDir") or args.project or DEFAULT_PROJECT_DIR_NAME)
+    patches_dir_value = str(config.get("patchesDir") or args.patches or DEFAULT_PATCHES_DIR_NAME)
+    archives_dir_value = str(config.get("archivesDir") or args.archives or DEFAULT_ARCHIVES_DIR_NAME)
+    uts_dir_value = str(config.get("userTestSpaceDir") or getattr(args, "uts", DEFAULT_UTS_DIR_NAME) or DEFAULT_UTS_DIR_NAME)
+
+    upgraded_config, updated_fields = normalize_workspace_config_for_upgrade(
+        config,
+        project_dir=project_dir_value,
+        patches_dir=patches_dir_value,
+        archives_dir=archives_dir_value,
+        uts_dir=uts_dir_value,
+        branch=getattr(args, "branch", None),
+    )
+
+    workspace = discover_workspace_from_config(config_path) if not updated_fields else None
+    if workspace is None:
+        # Use the upgraded config before it is written to resolve newly introduced paths.
+        temp_path = config_path
+        temp_config = upgraded_config
+        project_root = resolve_workspace_path(workspace_root, temp_config.get("projectDir"), default=DEFAULT_PROJECT_DIR_NAME, key="projectDir")
+        patches_dir = resolve_workspace_path(workspace_root, temp_config.get("patchesDir"), default=DEFAULT_PATCHES_DIR_NAME, key="patchesDir")
+        archives_dir = resolve_workspace_path(workspace_root, temp_config.get("archivesDir"), default=DEFAULT_ARCHIVES_DIR_NAME, key="archivesDir")
+        uts_dir = resolve_workspace_path(workspace_root, temp_config.get("userTestSpaceDir"), default=DEFAULT_UTS_DIR_NAME, key="userTestSpaceDir")
+        workspace = Workspace(
+            project_root=project_root,
+            workspace_root=workspace_root,
+            patches_dir=patches_dir,
+            archives_dir=archives_dir,
+            uts_dir=uts_dir,
+            state_dir=state_dir,
+            state_file=state_dir / "state.json",
+        )
+
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    for path_to_create, label in ((workspace.patches_dir, "patches"), (workspace.archives_dir, "archives"), (workspace.uts_dir, "UserTestSpace"), (workspace.state_dir, ".devctl")):
+        existed = path_to_create.exists()
+        path_to_create.mkdir(parents=True, exist_ok=True)
+        if not existed:
+            payload["created"].append(label)
+
+    if getattr(args, "create_project", False):
+        existed = workspace.project_root.exists()
+        workspace.project_root.mkdir(parents=True, exist_ok=True)
+        if not existed:
+            payload["created"].append("project")
+    elif not workspace.project_root.exists():
+        payload["warnings"].append(f"каталог проекта отсутствует и не создавался: {workspace.project_root}")
+
+    if not workspace.state_file.exists():
+        write_json_file(workspace.state_file, {"version": STATE_VERSION, "runs": []})
+        payload["created"].append(".devctl/state.json")
+
+    if upgraded_config != config:
+        write_json_file(config_path, upgraded_config)
+        payload["changed"] = True
+    payload["updatedFields"] = updated_fields
+    payload["workspace"] = workspace_to_json(discover_workspace_from_config(config_path))
+    payload["ok"] = True
+
+    print_header("devctl init --upgrade")
+    print(f"Корень рабочей области: {workspace_root}")
+    print(f"Конфигурация:         {config_path}")
+    print(f"Обновление config:    {'да' if payload['changed'] else 'не требовалось'}")
+    print(f"Создано:              {', '.join(payload['created']) if payload['created'] else 'ничего'}")
+    print(f"Поля/исключения:      {', '.join(updated_fields) if updated_fields else 'уже актуальны'}")
+    print(f"Каталог UTS:          {workspace.uts_dir}")
+    for warning in payload.get("warnings") or []:
+        print(f"Предупреждение: {warning}")
+    maybe_emit_json(json_enabled, payload)
+    return 0
+
+def init_command(args: argparse.Namespace) -> int:
+    if getattr(args, "upgrade", False):
+        return upgrade_workspace_command(args)
+    init_workspace_arg = getattr(args, "workspace", None) or getattr(args, "workspace_override", None)
+    workspace_root = expand_user_path(init_workspace_arg).resolve() if init_workspace_arg else Path.cwd().resolve()
+    project_path = Path(args.project).expanduser()
+    if project_path.is_absolute():
+        project_root = project_path.resolve()
+    else:
+        project_root = (workspace_root / project_path).resolve()
+
+    patches_dir = (workspace_root / args.patches).resolve()
+    archives_dir = (workspace_root / args.archives).resolve()
+    uts_dir = (workspace_root / getattr(args, "uts", DEFAULT_UTS_DIR_NAME)).resolve()
+    state_dir = workspace_root / ".devctl"
+    config_path = state_dir / "workspace.json"
+    json_enabled = bool(getattr(args, "json", False))
+
+    payload: dict[str, Any] = {
+        "ok": False,
+        "version": DEVCTL_VERSION,
+        "workspaceRoot": str(workspace_root),
+        "projectRoot": str(project_root),
+        "patchesDir": str(patches_dir),
+        "archivesDir": str(archives_dir),
+        "userTestSpaceDir": str(uts_dir),
+        "configPath": str(config_path),
+        "created": [],
+        "warnings": [],
+        "git": {"requested": bool(getattr(args, "git_init", False) or (getattr(args, "remote_url", None) or "").strip())},
+    }
+
+    if config_path.exists() and not args.force:
+        message = f"Конфигурация рабочей области уже существует: {config_path}. Используйте --force для перезаписи."
+        payload["error"] = message
+        maybe_emit_json(json_enabled, payload)
+        raise DevctlError(message)
+
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    for path_to_create, label in ((patches_dir, "patches"), (archives_dir, "archives"), (uts_dir, "UserTestSpace"), (state_dir, ".devctl")):
+        existed = path_to_create.exists()
+        path_to_create.mkdir(parents=True, exist_ok=True)
+        if not existed:
+            payload["created"].append(label)
+
+    remote_url_arg = (getattr(args, "remote_url", None) or "").strip() or None
+    should_sync_git = bool(getattr(args, "git_init", False) or remote_url_arg)
+    should_create_project = bool(getattr(args, "create_project", False) or should_sync_git)
+    if should_create_project:
+        existed = project_root.exists()
+        project_root.mkdir(parents=True, exist_ok=True)
+        if not existed:
+            payload["created"].append("project")
+
+    branch = getattr(args, "branch", None)
+    git_config = default_git_config(branch)
+
+    config = {
+        "version": 1,
+        "projectDir": posix_rel_or_dot(project_root, workspace_root),
+        "patchesDir": posix_rel_or_dot(patches_dir, workspace_root),
+        "archivesDir": posix_rel_or_dot(archives_dir, workspace_root),
+        "userTestSpaceDir": posix_rel_or_dot(uts_dir, workspace_root),
+        "git": git_config,
+        "archive": {
+            "exclude": default_archive_excludes(),
+        },
+        "checkProfiles": {
+            "default": []
+        },
+    }
+    write_json_file(config_path, config)
+    if not (state_dir / "state.json").exists():
+        write_json_file(state_dir / "state.json", {"version": STATE_VERSION, "runs": []})
+
+    git_result: dict[str, Any] | None = None
+    if should_sync_git:
+        git_result = init_git_repository(
+            project_root,
+            branch=str(branch or "main"),
+            remote_url=remote_url_arg,
+        )
+        payload["git"] = git_result
+        payload["warnings"].extend(git_result.get("warnings") or [])
+        if git_result.get("errors"):
+            payload["error"] = "; ".join(str(item) for item in git_result.get("errors") or [])
+            maybe_emit_json(json_enabled, payload)
+            raise DevctlError(str(payload["error"]))
+    else:
+        payload["git"] = {"requested": False}
+
+    payload["ok"] = True
+
+    print_header("devctl init")
+    print(f"Корень рабочей области: {workspace_root}")
+    print(f"Корень проекта:        {project_root} {'[нет]' if not project_root.exists() else ''}")
+    print(f"Каталог патчей:       {patches_dir}")
+    print(f"Каталог архивов:      {archives_dir}")
+    print(f"Каталог UTS:          {uts_dir}")
+    print(f"Конфигурация:         {config_path}")
+    if git_result:
+        print(f"Git:                  {'инициализирован' if git_result.get('initialized') else 'ошибка'}")
+        print(f"Ветка:                {git_result.get('branch') or branch or 'неизвестно'}")
+        print(f"Операция Git:         {git_result.get('operation') or 'нет'}")
+        operations = git_result.get('operations') or []
+        if operations:
+            print(f"Git-шаги:             {', '.join(str(item) for item in operations)}")
+        if git_result.get("remoteUrl"):
+            print(f"Remote origin:        {git_result.get('remoteUrl')}")
+            print(f"Remote синхронизирован: {git_result.get('synced')}")
+    if not project_root.exists():
+        print("Предупреждение: каталог проекта пока не существует. Создайте его перед запуском start.")
+    for warning in payload.get("warnings") or []:
+        print(f"Предупреждение: {warning}")
+    maybe_emit_json(json_enabled, payload)
+    return 0
+
+def select_patch_for_readonly(workspace: Workspace, patch_arg: str | None) -> PatchCandidate | None:
+    if patch_arg:
+        path = Path(patch_arg).expanduser()
+        if not path.is_absolute():
+            candidates = [Path.cwd() / path, workspace.patches_dir / path]
+            path = next((p for p in candidates if p.exists()), candidates[0])
+        manifest, error = read_manifest_from_zip(path)
+        candidate = PatchCandidate(path=path, manifest=manifest, manifest_error=error, sort_key=candidate_sort_key(path, manifest))
+        try:
+            candidate.sha256 = sha256_file(path)
+        except Exception as exc:
+            candidate.manifest_error = f"не удалось посчитать hash патча: {exc}"
+        return candidate
+    candidates = list_patch_candidates(workspace)
+    if not candidates:
+        return None
+    try:
+        state = load_state(workspace)
+    except DevctlError:
+        state = {"version": STATE_VERSION, "runs": []}
+    return find_latest_unapplied_patch(workspace, state, candidates)
+
+
+def zip_files_under_root(path: Path, files_root: str) -> list[str]:
+    prefix = files_root.rstrip("/") + "/"
+    try:
+        with zipfile.ZipFile(path, "r") as zf:
+            return sorted(name for name in zf.namelist() if name.startswith(prefix) and not name.endswith("/"))
+    except Exception:
+        return []
+
+
+def build_inspect_payload(args: argparse.Namespace, *, plan: bool = False) -> tuple[dict[str, Any], int]:
+    try:
+        workspace = discover_workspace(workspace_arg_from_namespace(args))
+    except DevctlError as exc:
+        return {"ok": False, "version": DEVCTL_VERSION, "error": str(exc), "plan": plan}, 2
+
+    patch = select_patch_for_readonly(workspace, args.patch)
+    if not patch:
+        return {
+            "ok": True,
+            "version": DEVCTL_VERSION,
+            "plan": plan,
+            "workspace": workspace_to_json(workspace),
+            "patch": None,
+            "message": "Zip-файлы патчей не найдены или все кандидаты уже применены.",
+        }, 0
+
+    payload: dict[str, Any] = {
+        "ok": True,
+        "version": DEVCTL_VERSION,
+        "plan": plan,
+        "workspace": workspace_to_json(workspace),
+        "patch": patch_to_json(patch, workspace),
+        "validation": {"ok": True, "error": None},
+        "apply": {"filesRoot": None, "copyCount": 0, "copyFiles": [], "deleteCount": 0, "deletePaths": []},
+        "checks": [],
+        "commit": {},
+        "push": {},
+        "dryRun": bool(plan),
+    }
+
+    if patch.manifest_error:
+        payload["ok"] = False
+        payload["validation"] = {"ok": False, "error": patch.manifest_error}
+        return payload, 2
+
+    assert patch.manifest is not None
+    manifest = patch.manifest
+    payload["manifest"] = {
+        "patchId": manifest.get("patchId"),
+        "title": manifest.get("title"),
+        "summary": manifest.get("summary"),
+        "createdAt": manifest.get("createdAt"),
+    }
+
+    try:
+        validate_manifest(manifest)
+        validate_patch_files_root(patch, manifest)
+    except InvalidPatchError as exc:
+        payload["ok"] = False
+        payload["validation"] = {"ok": False, "error": str(exc)}
+        return payload, 2
+
+    apply_cfg = manifest.get("apply", {}) if isinstance(manifest.get("apply"), dict) else {}
+    files_root = apply_cfg.get("filesRoot", "files")
+    copied = zip_files_under_root(patch.path, files_root)
+    prefix = str(files_root).rstrip("/") + "/"
+    copy_files = [name[len(prefix):] if name.startswith(prefix) else name for name in copied]
+    deletes = apply_cfg.get("delete", []) if isinstance(apply_cfg.get("delete", []), list) else []
+    checks = manifest.get("checks", []) if isinstance(manifest.get("checks", []), list) else []
+    commit = manifest.get("commit", {}) if isinstance(manifest.get("commit"), dict) else {}
+
+    payload["apply"] = {
+        "filesRoot": files_root,
+        "copyCount": len(copy_files),
+        "copyFiles": copy_files,
+        "deleteCount": len(deletes),
+        "deletePaths": [entry for entry in deletes if isinstance(entry, dict)],
+    }
+    payload["checks"] = [check for check in checks if isinstance(check, dict)]
+    payload["commit"] = {
+        "message": commit.get("message", ""),
+        "enabledInManifest": commit.get("enabled", True),
+        "note": "manifest commit.enabled=false будет проигнорирован командой start" if commit.get("enabled") is False else None,
+    }
+
+    try:
+        current_branch = git_branch(workspace.project_root)
+    except DevctlError:
+        current_branch = None
+    push_enabled, remote, branch, note = effective_push_policy(
+        workspace, manifest, current_branch=current_branch
+    )
+    payload["push"] = {
+        "enabled": push_enabled,
+        "remote": remote,
+        "branch": branch,
+        "note": note,
+    }
+    return payload, 0
+
+
+def inspect_command(args: argparse.Namespace, *, plan: bool = False) -> int:
+    if getattr(args, "json", False):
+        payload, code = build_inspect_payload(args, plan=plan)
+        emit_json(payload)
+        return code
+
+    workspace = discover_workspace(workspace_arg_from_namespace(args))
+    patch = select_patch_for_readonly(workspace, args.patch)
+    if not patch:
+        print("Zip-файлы патчей не найдены.")
+        return 0
+
+    print_header("devctl plan" if plan else "devctl inspect")
+    print(f"Файл патча: {patch.path}")
+    print(f"SHA-256:    {patch.sha256 or 'неизвестно'}")
+    if patch.manifest_error:
+        print(f"Манифест:   НЕКОРРЕКТЕН — {patch.manifest_error}")
+        return 2
+    assert patch.manifest is not None
+    manifest = patch.manifest
+    print(f"ID патча:   {manifest.get('patchId', 'неизвестно')}")
+    print(f"Название:   {manifest.get('title', 'неизвестно')}")
+    print(f"Сводка:     {manifest.get('summary', '')}")
+
+    try:
+        validate_manifest(manifest)
+        validate_patch_files_root(patch, manifest)
+        print("Валидация: OK")
+    except InvalidPatchError as exc:
+        print(f"Валидация: НЕКОРРЕКТНО — {exc}")
+        return 2
+
+    apply_cfg = manifest.get("apply", {}) if isinstance(manifest.get("apply"), dict) else {}
+    files_root = apply_cfg.get("filesRoot", "files")
+    copied = zip_files_under_root(patch.path, files_root)
+    deletes = apply_cfg.get("delete", []) if isinstance(apply_cfg.get("delete", []), list) else []
+    checks = manifest.get("checks", []) if isinstance(manifest.get("checks", []), list) else []
+    commit = manifest.get("commit", {}) if isinstance(manifest.get("commit"), dict) else {}
+    push = manifest.get("push", {}) if isinstance(manifest.get("push"), dict) else {}
+
+    print_header("применение")
+    print(f"Корень файлов: {files_root}")
+    print(f"Файлов к копированию: {len(copied)}")
+    for name in copied[:80]:
+        print(f"  + {name[len(str(files_root).rstrip('/') + '/'):]}")
+    if len(copied) > 80:
+        print(f"  ... ещё {len(copied) - 80}")
+    print(f"Путей к удалению: {len(deletes)}")
+    for entry in deletes[:80]:
+        if isinstance(entry, dict):
+            print(f"  - {entry.get('path')} recursive={entry.get('recursive', False)} required={entry.get('required', False)}")
+
+    print_header("проверки")
+    if checks:
+        for check in checks:
+            if isinstance(check, dict):
+                print(f"  - {check.get('name')}: {check.get('command')}  [cwd={check.get('cwd')}]")
+    else:
+        print("Проверки не объявлены.")
+
+    print_header("commit / push")
+    try:
+        current_branch = git_branch(workspace.project_root)
+    except DevctlError:
+        current_branch = None
+    push_enabled, remote, branch, note = effective_push_policy(
+        workspace, manifest, current_branch=current_branch
+    )
+    print("Политика конвейера по умолчанию: проверки -> commit -> push")
+    print(f"Сообщение коммита: {commit.get('message', '')}")
+    if commit.get("enabled") is False:
+        print("Примечание commit: manifest commit.enabled=false будет проигнорирован командой start")
+    print(f"Push включён:     {push_enabled}")
+    print(f"Цель push:        {remote}/{branch}")
+    print(f"Примечание push:  {note}")
+
+    if plan:
+        print_header("dry-run")
+        print("Файлы не изменялись. Запустите `devctl start`, чтобы выполнить конвейер.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Workspace sync command
+# ---------------------------------------------------------------------------
+
+
+
+def validate_remote_name(remote: str) -> str:
+    value = (remote or "origin").strip()
+    if not value or any(ch.isspace() for ch in value) or value.startswith("-"):
+        raise DevctlError(f"Некорректное имя Git remote: {remote!r}")
+    return value
+
+
+def set_git_remote_url(project_root: Path, remote: str, remote_url: str, result: dict[str, Any]) -> bool:
+    remote = validate_remote_name(remote)
+    existing_remote = git(project_root, ["remote", "get-url", remote])
+    if existing_remote.returncode == 0:
+        set_result = git(project_root, ["remote", "set-url", remote, remote_url])
+        action = "set-url"
+    else:
+        set_result = git(project_root, ["remote", "add", remote, remote_url])
+        action = "add"
+    if set_result.returncode != 0:
+        result.setdefault("errors", []).append(f"git remote {action} {remote} завершился ошибкой: {command_error_summary(set_result)}")
+        return False
+    result["remoteLinked"] = True
+    result.setdefault("operations", []).append(f"remote {action} {remote}")
+    return True
+
+
+def fetch_git_remote(project_root: Path, remote: str, result: dict[str, Any]) -> bool:
+    remote = validate_remote_name(remote)
+    fetch_result = git(project_root, ["fetch", "--prune", remote], timeout=300)
+    if fetch_result.returncode != 0:
+        result.setdefault("errors", []).append(f"git fetch --prune {remote} завершился ошибкой: {command_error_summary(fetch_result)}")
+        return False
+    result.setdefault("operations", []).append(f"fetch --prune {remote}")
+    return True
+
+
+def git_remote_url(project_root: Path, remote: str = "origin") -> str | None:
+    result = git(project_root, ["remote", "get-url", remote])
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def remote_default_branch_from_url(remote_url: str) -> str | None:
+    """Best-effort detection of a remote repository default branch.
+
+    Works before a local repository exists, so `devctl sync --remote-url ...` can
+    clone GitHub repositories whose default branch is not `main`.
+    """
+    if not git_available() or not remote_url:
+        return None
+    cwd = Path.cwd()
+    result = run_command(["git", "ls-remote", "--symref", remote_url, "HEAD"], cwd, timeout=300)
+    if result.returncode != 0:
+        return None
+    for line in result.stdout.splitlines():
+        # Example: "ref: refs/heads/main\tHEAD"
+        line = line.strip()
+        if not line.startswith("ref:") or "refs/heads/" not in line:
+            continue
+        head_ref = line.split()[1] if len(line.split()) > 1 else ""
+        if head_ref.startswith("refs/heads/"):
+            return head_ref.removeprefix("refs/heads/").strip() or None
+    return None
+
+
+def remote_default_branch_from_project(project_root: Path, remote: str = "origin") -> str | None:
+    result = git(project_root, ["symbolic-ref", "--short", f"refs/remotes/{remote}/HEAD"])
+    if result.returncode == 0 and result.stdout.strip():
+        value = result.stdout.strip()
+        prefix = f"{remote}/"
+        return value[len(prefix):] if value.startswith(prefix) else value
+    remote_url = git_remote_url(project_root, remote)
+    if remote_url:
+        return remote_default_branch_from_url(remote_url)
+    return None
+
+
+def workspace_archive_excludes(workspace: Workspace) -> list[str]:
+    config_path = workspace.state_dir / "workspace.json"
+    configured: list[str] = []
+    if config_path.is_file():
+        try:
+            config = read_json_file(config_path)
+            archive_cfg = config.get("archive") if isinstance(config.get("archive"), dict) else {}
+            raw_excludes = archive_cfg.get("exclude") if isinstance(archive_cfg, dict) else []
+            if isinstance(raw_excludes, list):
+                configured = [item for item in raw_excludes if isinstance(item, str)]
+        except DevctlError:
+            configured = []
+    return unique_strings([*default_archive_excludes(), *configured])
+
+
+def workspace_sync_archive_manifest(workspace: Workspace) -> dict[str, Any]:
+    return {
+        "archive": {
+            "nameSlug": "workspace-sync",
+            "includeProjectDir": True,
+            "exclude": workspace_archive_excludes(workspace),
+        }
+    }
+
+
+def populate_user_test_space_from_archive(
+    workspace: Workspace,
+    archive_path: Path,
+    *,
+    slug: str,
+    sha: str | None,
+) -> Path:
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    version_dir = unique_path(workspace.uts_dir / f"project_{timestamp}_after_{slug}_{short_sha(sha)}")
+    tmp_dir = unique_path(workspace.uts_dir / f".tmp_{version_dir.name}")
+    try:
+        workspace.uts_dir.mkdir(parents=True, exist_ok=True)
+        safe_extract_zip(archive_path, tmp_dir)
+        entries = [path for path in tmp_dir.iterdir()] if tmp_dir.exists() else []
+        project_dir = version_dir / "project"
+        project_dir.parent.mkdir(parents=True, exist_ok=True)
+        if len(entries) == 1 and entries[0].is_dir():
+            shutil.move(str(entries[0]), str(project_dir))
+        else:
+            project_dir.mkdir(parents=True, exist_ok=False)
+            for entry in entries:
+                shutil.move(str(entry), str(project_dir / entry.name))
+        return project_dir
+    finally:
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def ensure_workspace_runtime_dirs(workspace: Workspace) -> list[str]:
+    created: list[str] = []
+    for path_to_create, label in (
+        (workspace.patches_dir, "patches"),
+        (workspace.archives_dir, "archives"),
+        (workspace.uts_dir, "UserTestSpace"),
+        (workspace.state_dir, ".devctl"),
+    ):
+        existed = path_to_create.exists()
+        path_to_create.mkdir(parents=True, exist_ok=True)
+        if not existed:
+            created.append(label)
+    if not workspace.state_file.exists():
+        write_json_file(workspace.state_file, {"version": STATE_VERSION, "runs": []})
+        created.append(".devctl/state.json")
+    return created
+
+
+def sync_existing_git_from_remote(
+    workspace: Workspace,
+    *,
+    remote: str,
+    remote_url: str | None,
+    branch: str | None,
+    discard_local: bool,
+    clean_mode: str,
+    payload: dict[str, Any],
+) -> str:
+    project_root = workspace.project_root
+    git_payload = payload.setdefault("git", {})
+    operations = git_payload.setdefault("operations", [])
+
+    if remote_url:
+        if not set_git_remote_url(project_root, remote, remote_url, git_payload):
+            raise DevctlError("; ".join(git_payload.get("errors") or ["не удалось привязать remote origin"]))
+    else:
+        remote_url = git_remote_url(project_root, remote)
+        if not remote_url:
+            raise DevctlError(
+                f"В project/ не найден remote {remote!r}. Передайте `devctl sync --remote-url <GitHub URL>` "
+                "или задайте origin вручную."
+            )
+
+    git_payload["remote"] = remote
+    git_payload["remoteUrl"] = remote_url
+
+    if not fetch_git_remote(project_root, remote, git_payload):
+        raise DevctlError("; ".join(git_payload.get("errors") or [f"git fetch --prune {remote} завершился ошибкой"]))
+
+    resolved_branch = (
+        (branch or "").strip()
+        or str(workspace_git_config(workspace).get("branch") or "").strip()
+        or remote_default_branch_from_project(project_root, remote)
+    )
+    if not resolved_branch:
+        try:
+            resolved_branch = git_branch(project_root)
+        except DevctlError:
+            resolved_branch = "main"
+    git_payload["branch"] = resolved_branch
+
+    if not remote_ref_exists(project_root, remote, resolved_branch):
+        raise DevctlError(
+            f"Remote-ветка {remote}/{resolved_branch} не найдена. Укажите другую ветку через `--branch` "
+            "или проверьте remote URL."
+        )
+
+    status_before = git_status_porcelain(project_root)
+    git_payload["statusBefore"] = status_before
+    git_payload["dirtyBefore"] = bool(status_before.strip())
+
+    if discard_local:
+        if has_git_commit(project_root):
+            reset_current = git_reset_hard(project_root, "HEAD")
+            if reset_current.returncode != 0:
+                raise DevctlError("git reset --hard HEAD завершился ошибкой: " + command_error_summary(reset_current))
+            operations.append("reset --hard HEAD")
+        clean_before = git_clean(project_root, clean_mode)
+        if clean_before.returncode != 0:
+            raise DevctlError("git clean перед checkout завершился ошибкой: " + command_error_summary(clean_before))
+        operations.append(f"clean -{clean_mode}")
+
+        checkout = git(project_root, ["checkout", "-B", resolved_branch, f"{remote}/{resolved_branch}"], timeout=180)
+        if checkout.returncode != 0:
+            raise DevctlError(f"git checkout -B {resolved_branch} {remote}/{resolved_branch} завершился ошибкой: {command_error_summary(checkout)}")
+        operations.append(f"checkout -B {resolved_branch} {remote}/{resolved_branch}")
+
+        reset_remote = git_reset_hard(project_root, f"{remote}/{resolved_branch}")
+        if reset_remote.returncode != 0:
+            raise DevctlError(f"git reset --hard {remote}/{resolved_branch} завершился ошибкой: {command_error_summary(reset_remote)}")
+        operations.append(f"reset --hard {remote}/{resolved_branch}")
+
+        clean_after = git_clean(project_root, clean_mode)
+        if clean_after.returncode != 0:
+            raise DevctlError("git clean после reset завершился ошибкой: " + command_error_summary(clean_after))
+        operations.append(f"clean -{clean_mode}")
+    else:
+        if status_before.strip():
+            raise DevctlError(
+                "Рабочее дерево project/ содержит локальные изменения. "
+                "Закоммитьте/уберите их или повторите `devctl sync --discard-local`, если GitHub действительно источник истины."
+            )
+        current_branch: str | None = None
+        try:
+            current_branch = git_branch(project_root)
+        except DevctlError:
+            current_branch = None
+        if current_branch != resolved_branch:
+            if local_branch_exists(project_root, resolved_branch):
+                checkout = git(project_root, ["checkout", resolved_branch], timeout=180)
+            else:
+                checkout = git(project_root, ["checkout", "-B", resolved_branch, f"{remote}/{resolved_branch}"], timeout=180)
+            if checkout.returncode != 0:
+                raise DevctlError(f"git checkout {resolved_branch} завершился ошибкой: {command_error_summary(checkout)}")
+            operations.append(f"checkout {resolved_branch}")
+
+        ahead, behind, error = ahead_behind(project_root, remote, resolved_branch)
+        git_payload["aheadBehindBefore"] = {"ahead": ahead, "behind": behind, "error": error}
+        if error:
+            raise DevctlError(error)
+        if ahead and ahead > 0:
+            raise DevctlError(
+                f"Локальная ветка содержит {ahead} commit(ов), которых нет в {remote}/{resolved_branch}. "
+                "Безопасный sync остановлен. Для режима 'GitHub — источник истины' повторите с `--discard-local`."
+            )
+        if behind and behind > 0:
+            pull_result = git(project_root, ["pull", "--ff-only", remote, resolved_branch], timeout=300)
+            if pull_result.returncode != 0:
+                raise DevctlError(f"git pull --ff-only {remote} {resolved_branch} завершился ошибкой: {command_error_summary(pull_result)}")
+            operations.append(f"pull --ff-only {remote} {resolved_branch}")
+        else:
+            operations.append("already up-to-date")
+
+    git_payload["headAfter"] = git_head(project_root) if has_git_commit(project_root) else None
+    git_payload["statusAfter"] = git_status_porcelain(project_root)
+    git_payload["cleanAfter"] = not str(git_payload.get("statusAfter") or "").strip()
+    git_payload["synced"] = True
+    return resolved_branch
+
+
+def sync_clone_from_remote(
+    workspace: Workspace,
+    *,
+    remote_url: str | None,
+    branch: str | None,
+    payload: dict[str, Any],
+) -> str:
+    project_root = workspace.project_root
+    if project_root.exists() and not project_root.is_dir():
+        raise DevctlError(f"Путь project не является каталогом: {project_root}")
+    if project_root.exists() and directory_has_entries(project_root):
+        raise DevctlError(
+            f"project/ существует, не пуст и не является Git-репозиторием: {project_root}. "
+            "devctl sync не удаляет такой каталог автоматически. Освободите project/ или создайте новый workspace."
+        )
+    if not remote_url:
+        raise DevctlError(
+            "project/ отсутствует или не является Git-репозиторием, а remote не задан. "
+            "Передайте `devctl sync --remote-url <GitHub URL>`."
+        )
+    resolved_branch = (branch or "").strip() or remote_default_branch_from_url(remote_url) or "main"
+    git_result = init_git_repository(project_root, branch=resolved_branch, remote_url=remote_url)
+    payload["git"] = git_result
+    if git_result.get("errors"):
+        raise DevctlError("; ".join(str(item) for item in git_result.get("errors") or []))
+    git_result["headAfter"] = git_head(project_root) if has_git_commit(project_root) else None
+    git_result["statusAfter"] = git_status_porcelain(project_root) if (project_root / ".git").exists() else ""
+    git_result["cleanAfter"] = not str(git_result.get("statusAfter") or "").strip()
+    return str(git_result.get("branch") or resolved_branch)
+
+
+def build_sync_artifacts(
+    workspace: Workspace,
+    *,
+    no_archive: bool,
+    no_uts: bool,
+    payload: dict[str, Any],
+) -> None:
+    if no_archive and not no_uts:
+        raise DevctlError("Нельзя обновить UTS без свежего архива: уберите --no-archive или добавьте --no-uts.")
+    head = payload.get("git", {}).get("headAfter") if isinstance(payload.get("git"), dict) else None
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    archive_path: Path | None = None
+    run_dir: Path | None = None
+
+    if not no_archive:
+        run_dir = unique_path(workspace.archives_dir / f"{timestamp}_workspace-sync_{short_sha(head)}")
+        archive_filename = archive_name(workspace.project_root.name, timestamp, "post", "after_workspace-sync", short_sha(head))
+        archive_path, file_count = create_project_archive(
+            workspace,
+            run_dir / archive_filename,
+            manifest=workspace_sync_archive_manifest(workspace),
+        )
+        report = {
+            "version": DEVCTL_VERSION,
+            "createdAt": iso_now(),
+            "kind": "workspace-sync",
+            "workspace": workspace_to_json(workspace),
+            "git": payload.get("git"),
+            "archive": {"path": str(archive_path), "fileCount": file_count},
+        }
+        write_json_file(run_dir / "sync-report.json", report)
+        payload["archive"] = {
+            "created": True,
+            "path": str(archive_path),
+            "relativePath": rel_display(archive_path, workspace.workspace_root),
+            "runDir": str(run_dir),
+            "relativeRunDir": rel_display(run_dir, workspace.workspace_root),
+            "fileCount": file_count,
+        }
+    else:
+        payload["archive"] = {"created": False, "path": None, "runDir": None, "fileCount": 0}
+
+    if not no_uts:
+        assert archive_path is not None
+        uts_project = populate_user_test_space_from_archive(
+            workspace,
+            archive_path,
+            slug="workspace-sync",
+            sha=str(head or ""),
+        )
+        payload["uts"] = {
+            "created": True,
+            "projectDir": str(uts_project),
+            "relativeProjectDir": rel_display(uts_project, workspace.workspace_root),
+        }
+    else:
+        payload["uts"] = {"created": False, "projectDir": None}
+
+
+def sync_command(args: argparse.Namespace) -> int:
+    json_enabled = bool(getattr(args, "json", False))
+    payload: dict[str, Any] = {
+        "ok": False,
+        "version": DEVCTL_VERSION,
+        "workspace": None,
+        "created": [],
+        "git": {
+            "available": git_available(),
+            "synced": False,
+            "remote": getattr(args, "remote", "origin"),
+            "remoteUrl": (getattr(args, "remote_url", None) or None),
+            "branch": (getattr(args, "branch", None) or None),
+            "discardLocal": bool(getattr(args, "discard_local", False)),
+            "operations": [],
+            "errors": [],
+            "warnings": [],
+        },
+        "archive": {"created": False},
+        "uts": {"created": False},
+        "warnings": [],
+        "error": None,
+    }
+    try:
+        workspace = discover_workspace(workspace_arg_from_namespace(args))
+        payload["workspace"] = workspace_to_json(workspace)
+        payload["created"] = ensure_workspace_runtime_dirs(workspace)
+
+        if not git_available():
+            raise DevctlError("команда git не найдена")
+
+        remote = validate_remote_name(getattr(args, "remote", "origin") or "origin")
+        remote_url = (getattr(args, "remote_url", None) or "").strip() or None
+        branch = (getattr(args, "branch", None) or "").strip() or None
+        clean_mode = getattr(args, "clean_mode", "fd")
+        discard_local = bool(getattr(args, "discard_local", False))
+
+        is_repo = (workspace.project_root / ".git").exists()
+        if is_repo:
+            resolved_branch = sync_existing_git_from_remote(
+                workspace,
+                remote=remote,
+                remote_url=remote_url,
+                branch=branch,
+                discard_local=discard_local,
+                clean_mode=clean_mode,
+                payload=payload,
+            )
+        else:
+            resolved_branch = sync_clone_from_remote(
+                workspace,
+                remote_url=remote_url,
+                branch=branch,
+                payload=payload,
+            )
+        payload.setdefault("git", {})["branch"] = resolved_branch
+
+        build_sync_artifacts(
+            workspace,
+            no_archive=bool(getattr(args, "no_archive", False)),
+            no_uts=bool(getattr(args, "no_uts", False)),
+            payload=payload,
+        )
+        payload["ok"] = True
+
+        if json_enabled:
+            emit_json(payload)
+        else:
+            print_header("devctl sync")
+            print(f"Workspace:      {workspace.workspace_root}")
+            print(f"Project:        {workspace.project_root}")
+            print(f"Remote:         {payload.get('git', {}).get('remoteUrl') or 'неизвестно'}")
+            print(f"Ветка:          {payload.get('git', {}).get('branch') or 'неизвестно'}")
+            print(f"Режим:          {'GitHub источник истины (--discard-local)' if discard_local else 'безопасный ff-only'}")
+            operations = payload.get("git", {}).get("operations") or []
+            print(f"Git-шаги:       {', '.join(str(item) for item in operations) if operations else 'нет'}")
+            archive = payload.get("archive") if isinstance(payload.get("archive"), dict) else {}
+            print(f"Архив:          {archive.get('relativePath') or ('не создавался' if getattr(args, 'no_archive', False) else 'нет')}")
+            uts = payload.get("uts") if isinstance(payload.get("uts"), dict) else {}
+            print(f"UTS:            {uts.get('relativeProjectDir') or ('не обновлялся' if getattr(args, 'no_uts', False) else 'нет')}")
+        return 0
+    except DevctlError as exc:
+        payload["error"] = str(exc)
+        if json_enabled:
+            emit_json(payload)
+        else:
+            print(f"[ОШИБКА] {exc}")
+        return 2
+
+# ---------------------------------------------------------------------------
+# Release install / shell completion helpers
+# ---------------------------------------------------------------------------
+
+
+SHELLS = ("bash", "zsh", "fish")
+SELF_ACTIONS = ("install", "update", "info", "uninstall", "install-completions")
+INSTALL_METADATA_FILENAME = "install.json"
+
+
+def user_home() -> Path:
+    return expand_user_path(os.environ.get("HOME", "~")).resolve()
+
+
+def xdg_data_home() -> Path:
+    return expand_user_path(os.environ.get("XDG_DATA_HOME", str(user_home() / ".local" / "share"))).resolve()
+
+
+def xdg_config_home() -> Path:
+    return expand_user_path(os.environ.get("XDG_CONFIG_HOME", str(user_home() / ".config"))).resolve()
+
+
+def default_user_bin_dir() -> Path:
+    return (user_home() / ".local" / "bin").resolve()
+
+
+def default_app_dir() -> Path:
+    return (xdg_data_home() / "devctl").resolve()
+
+
+def shell_single_quote(value: str | Path) -> str:
+    return "'" + str(value).replace("'", "'\"'\"'") + "'"
+
+
+def path_is_on_path(directory: Path) -> bool:
+    directory_text = str(directory.resolve())
+    for item in os.environ.get("PATH", "").split(os.pathsep):
+        if not item:
+            continue
+        try:
+            if str(Path(item).expanduser().resolve()) == directory_text:
+                return True
+        except Exception:
+            if item == directory_text:
+                return True
+    return False
+
+
+def normalize_shells(shell: str | Iterable[str]) -> list[str]:
+    if isinstance(shell, str):
+        raw = SHELLS if shell == "auto" else (shell,)
+    else:
+        raw = tuple(shell)
+    result: list[str] = []
+    for item in raw:
+        if item not in SHELLS:
+            raise DevctlError(f"Неизвестная оболочка для completion: {item}")
+        if item not in result:
+            result.append(item)
+    return result
+
+
+def ensure_devctl_launcher(launcher_path: Path, managed_script: Path, *, force: bool) -> None:
+    if launcher_path.exists() and not force:
+        try:
+            existing = launcher_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            existing = ""
+        if "managed by devctl self install" not in existing:
+            raise DevctlError(
+                f"Файл запуска уже существует и не похож на управляемый devctl launcher: {launcher_path}. "
+                "Повторите с --force, если его можно перезаписать."
+            )
+    launcher_path.parent.mkdir(parents=True, exist_ok=True)
+    launcher_text = "\n".join(
+        [
+            "#!/usr/bin/env sh",
+            "# managed by devctl self install",
+            f"exec python3 {shell_single_quote(managed_script)} \"$@\"",
+            "",
+        ]
+    )
+    launcher_path.write_text(launcher_text, encoding="utf-8", newline="\n")
+    launcher_path.chmod(0o755)
+
+
+def copy_managed_script(source: Path, managed_script: Path) -> None:
+    if not source.is_file():
+        raise DevctlError(f"Исходный devctl.py не найден: {source}")
+    managed_script.parent.mkdir(parents=True, exist_ok=True)
+    tmp = managed_script.with_suffix(managed_script.suffix + ".tmp")
+    shutil.copy2(source, tmp)
+    tmp.chmod(0o755)
+    tmp.replace(managed_script)
+
+
+def completion_target_path(shell: str) -> Path:
+    if shell == "bash":
+        return xdg_data_home() / "bash-completion" / "completions" / DEVCTL_COMMAND_NAME
+    if shell == "zsh":
+        return xdg_data_home() / "zsh" / "site-functions" / f"_{DEVCTL_COMMAND_NAME}"
+    if shell == "fish":
+        return xdg_config_home() / "fish" / "completions" / f"{DEVCTL_COMMAND_NAME}.fish"
+    raise DevctlError(f"Неизвестная оболочка для completion: {shell}")
+
+
+def completion_script(shell: str, *, command_name: str = DEVCTL_COMMAND_NAME) -> str:
+    if shell == "bash":
+        return f"""# bash completion for devctl; generated by `devctl completion bash`.
+_devctl_completion() {{
+  local -a completions
+  local cword
+  cword="${{COMP_CWORD}}"
+  mapfile -t completions < <("${{COMP_WORDS[0]}}" __complete --position "$cword" bash -- "${{COMP_WORDS[@]}}")
+  COMPREPLY=("${{completions[@]}}")
+  return 0
+}}
+complete -o nosort -F _devctl_completion {command_name}
+"""
+    if shell == "zsh":
+        return "#compdef " + command_name + f"""
+# zsh completion for devctl; generated by `devctl completion zsh`.
+_devctl() {{
+  local -a completions
+  completions=("${{(@f)$($words[1] __complete --position $((CURRENT - 1)) zsh -- "${{words[@]}}")}}")
+  compadd -Q -- "${{completions[@]}}"
+}}
+_devctl "$@"
+"""
+    if shell == "fish":
+        return f"""# fish completion for devctl; generated by `devctl completion fish`.
+function __devctl_complete
+    set -l tokens (commandline -opc)
+    set -l current (commandline -ct)
+    if test -n "$current"
+        set tokens $tokens $current
+    else
+        set tokens $tokens ""
+    end
+    set -l position (math (count $tokens) - 1)
+    {command_name} __complete --position $position fish -- $tokens
+end
+complete -c {command_name} -f -a "(__devctl_complete)"
+"""
+    raise DevctlError(f"Поддерживаемые shell: {', '.join(SHELLS)}")
+
+
+def install_completion_files(shell: str | Iterable[str], *, force: bool = False) -> list[Path]:
+    written: list[Path] = []
+    for item in normalize_shells(shell):
+        target = completion_target_path(item)
+        if target.exists() and not force:
+            try:
+                existing = target.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                existing = ""
+            if "generated by `devctl completion" not in existing:
+                raise DevctlError(
+                    f"Completion-файл уже существует и не похож на управляемый devctl: {target}. "
+                    "Повторите с --force, если его можно перезаписать."
+                )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(completion_script(item), encoding="utf-8", newline="\n")
+        written.append(target)
+    return written
+
+
+def completion_activation_hint(shell: str) -> str:
+    if shell == "zsh":
+        zsh_dir = completion_target_path("zsh").parent
+        return "\n".join(
+            [
+                "Zsh не подхватывает пользовательский site-functions сам. Добавь в ~/.zshrc ДО compinit:",
+                f"  fpath=({shell_single_quote(zsh_dir)} $fpath)",
+                "  autoload -Uz compinit && compinit",
+                "Для текущей сессии можно выполнить эти же строки, затем открыть новый prompt.",
+            ]
+        )
+    if shell == "bash":
+        return "Bash completion подхватывается после нового shell-сеанса, если установлен и загружен пакет bash-completion."
+    if shell == "fish":
+        return "Fish обычно подхватывает ~/.config/fish/completions/devctl.fish автоматически после нового prompt или shell-сеанса."
+    return ""
+
+
+def print_completion_activation_hints(shells: Iterable[str]) -> None:
+    shell_list = normalize_shells(shells)
+    if not shell_list:
+        return
+    print("Подсказки по активации completion:")
+    for shell in shell_list:
+        print(f"  [{shell}] {completion_activation_hint(shell)}")
+
+
+def remove_if_managed(path: Path, marker: str, *, force: bool) -> bool:
+    if not path.exists():
+        return False
+    if not force:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            text = ""
+        if marker not in text:
+            raise DevctlError(f"Не удаляю неуправляемый файл без --force: {path}")
+    path.unlink()
+    return True
+
+
+def install_paths_from_args(args: argparse.Namespace) -> tuple[Path, Path, Path]:
+    bin_dir = expand_user_path(args.bin_dir).resolve() if getattr(args, "bin_dir", None) else default_user_bin_dir()
+    app_dir = expand_user_path(args.app_dir).resolve() if getattr(args, "app_dir", None) else default_app_dir()
+    launcher = bin_dir / DEVCTL_COMMAND_NAME
+    managed_script = app_dir / "devctl.py"
+    return bin_dir, app_dir, launcher if launcher.name == DEVCTL_COMMAND_NAME else bin_dir / DEVCTL_COMMAND_NAME
+
+
+def install_metadata_path(app_dir: Path) -> Path:
+    return app_dir / INSTALL_METADATA_FILENAME
+
+
+def read_install_metadata(app_dir: Path) -> dict[str, Any]:
+    path = install_metadata_path(app_dir)
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def find_git_root_for_path(path: Path) -> Path | None:
+    start = path if path.is_dir() else path.parent
+    result = run_command(["git", "rev-parse", "--show-toplevel"], start, timeout=30)
+    if result.returncode != 0:
+        return None
+    root = result.stdout.strip()
+    return Path(root).resolve() if root else None
+
+
+def git_current_branch(git_root: Path | None) -> str | None:
+    if git_root is None:
+        return None
+    result = run_command(["git", "rev-parse", "--abbrev-ref", "HEAD"], git_root, timeout=30)
+    if result.returncode != 0:
+        return None
+    branch = result.stdout.strip()
+    if not branch or branch == "HEAD":
+        return None
+    return branch
+
+
+def looks_like_devctl_source(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+    return "DEVCTL_VERSION" in text and "DEVCTL_COMMAND_NAME" in text and "def build_parser" in text
+
+
+def write_install_metadata(
+    app_dir: Path,
+    *,
+    source: Path,
+    bin_dir: Path,
+    launcher: Path,
+    managed_script: Path,
+    completion_shells: Iterable[str],
+) -> Path:
+    git_root = find_git_root_for_path(source)
+    data: dict[str, Any] = {
+        "schemaVersion": 1,
+        "devctlVersion": DEVCTL_VERSION,
+        "installedAt": iso_now(),
+        "sourcePath": str(source.resolve()),
+        "sourceGitRoot": str(git_root) if git_root else None,
+        "sourceGitBranch": git_current_branch(git_root),
+        "binDir": str(bin_dir.resolve()),
+        "appDir": str(app_dir.resolve()),
+        "launcherPath": str(launcher.resolve()),
+        "managedScriptPath": str(managed_script.resolve()),
+        "completionShells": normalize_shells(completion_shells),
+    }
+    app_dir.mkdir(parents=True, exist_ok=True)
+    path = install_metadata_path(app_dir)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    tmp.replace(path)
+    return path
+
+
+def recorded_update_source(app_dir: Path) -> tuple[Path | None, dict[str, Any]]:
+    metadata = read_install_metadata(app_dir)
+    source_path = metadata.get("sourcePath")
+    if isinstance(source_path, str):
+        candidate = expand_user_path(source_path).resolve()
+        if looks_like_devctl_source(candidate):
+            return candidate, metadata
+    source_git_root = metadata.get("sourceGitRoot")
+    if isinstance(source_git_root, str):
+        candidate = expand_user_path(source_git_root).resolve() / "devctl.py"
+        if looks_like_devctl_source(candidate):
+            return candidate, metadata
+    return None, metadata
+
+
+def source_from_args(args: argparse.Namespace, *, update: bool, app_dir: Path) -> tuple[Path, dict[str, Any], str]:
+    raw = getattr(args, "source", None)
+    if raw:
+        return expand_user_path(raw).resolve(), read_install_metadata(app_dir), "--source"
+
+    if update:
+        cwd_candidate = (Path.cwd() / "devctl.py").resolve()
+        current_file = Path(__file__).resolve()
+        if cwd_candidate != current_file and looks_like_devctl_source(cwd_candidate):
+            return cwd_candidate, read_install_metadata(app_dir), "./devctl.py"
+
+        recorded, metadata = recorded_update_source(app_dir)
+        if recorded is not None:
+            return recorded, metadata, "install metadata"
+        return current_file, metadata, "current installed file"
+
+    return Path(__file__).resolve(), read_install_metadata(app_dir), "current file"
+
+
+def maybe_pull_source(source: Path, *, enabled: bool) -> Path | None:
+    if not enabled:
+        return None
+    git_root = find_git_root_for_path(source)
+    if git_root is None:
+        raise DevctlError(f"--pull-source указан, но источник не находится внутри Git-репозитория: {source}")
+    fetch = run_command(["git", "fetch", "--all", "--prune"], git_root, timeout=180)
+    if fetch.returncode != 0:
+        raise DevctlError(f"git fetch для источника обновления не прошёл: {fetch.stderr.strip() or fetch.stdout.strip()}")
+    pull = run_command(["git", "pull", "--ff-only"], git_root, timeout=180)
+    if pull.returncode != 0:
+        raise DevctlError(f"git pull --ff-only для источника обновления не прошёл: {pull.stderr.strip() or pull.stdout.strip()}")
+    return git_root
+
+
+def completion_shells_from_metadata(metadata: dict[str, Any]) -> list[str]:
+    raw = metadata.get("completionShells")
+    if not isinstance(raw, list):
+        return []
+    return [item for item in raw if isinstance(item, str) and item in SHELLS]
+
+
+def self_install_or_update(args: argparse.Namespace, *, update: bool) -> int:
+    bin_dir, app_dir, launcher = install_paths_from_args(args)
+    source, metadata, source_reason = source_from_args(args, update=update, app_dir=app_dir)
+    pulled_root = maybe_pull_source(source, enabled=bool(getattr(args, "pull_source", False))) if update else None
+    managed_script = app_dir / "devctl.py"
+
+    requested_completion_shells: list[str] = []
+    if getattr(args, "with_completions", False):
+        requested_completion_shells = normalize_shells(getattr(args, "shell", "auto"))
+    elif update:
+        requested_completion_shells = completion_shells_from_metadata(metadata)
+
+    copy_managed_script(source, managed_script)
+    ensure_devctl_launcher(launcher, managed_script, force=bool(getattr(args, "force", False)))
+    completion_paths: list[Path] = []
+    if requested_completion_shells:
+        completion_paths = install_completion_files(requested_completion_shells, force=bool(getattr(args, "force", False)))
+
+    metadata_path = write_install_metadata(
+        app_dir,
+        source=source,
+        bin_dir=bin_dir,
+        launcher=launcher,
+        managed_script=managed_script,
+        completion_shells=requested_completion_shells,
+    )
+
+    print_header("devctl self update" if update else "devctl self install")
+    print(f"Версия:            {DEVCTL_VERSION}")
+    print(f"Источник:          {source} [{source_reason}]")
+    if pulled_root is not None:
+        print(f"Git pull источника: {pulled_root}")
+    print(f"Управляемая копия: {managed_script}")
+    print(f"Команда:           {launcher}")
+    print(f"Метаданные:        {metadata_path}")
+    if update and source.resolve() == Path(__file__).resolve():
+        print("Предупреждение: источник обновления совпал с текущим установленным файлом; реального обновления могло не быть.")
+        print("Подсказка: из каталога свежего devctl-репозитория запусти `devctl self update --with-completions` или передай `--source /path/to/devctl.py`.")
+    if completion_paths:
+        print("Completion-файлы:")
+        for path in completion_paths:
+            print(f"  {path}")
+        print_completion_activation_hints(requested_completion_shells)
+    if not path_is_on_path(bin_dir):
+        print(f"Предупреждение: {bin_dir} не найден в PATH. Добавьте его в shell-профиль, чтобы запускать `{DEVCTL_COMMAND_NAME}` из любого каталога.")
+    print(f"Проверка:          {DEVCTL_COMMAND_NAME} --version")
+    return 0
+
+
+def self_info(args: argparse.Namespace) -> int:
+    bin_dir, app_dir, launcher = install_paths_from_args(args)
+    managed_script = app_dir / "devctl.py"
+    metadata = read_install_metadata(app_dir)
+    update_source, _ = recorded_update_source(app_dir)
+    print_header("devctl self info")
+    print(f"Версия текущего файла: {DEVCTL_VERSION}")
+    print(f"Текущий devctl.py:     {Path(__file__).resolve()}")
+    print(f"Ожидаемая команда:     {launcher} {'[есть]' if launcher.exists() else '[нет]'}")
+    print(f"Управляемая копия:     {managed_script} {'[есть]' if managed_script.exists() else '[нет]'}")
+    print(f"Метаданные установки:  {install_metadata_path(app_dir)} {'[есть]' if metadata else '[нет]'}")
+    print(f"Источник обновления:   {update_source if update_source else '[не задан или недоступен]'}")
+    if metadata.get("sourceGitRoot"):
+        print(f"Git-источник:          {metadata.get('sourceGitRoot')} ({metadata.get('sourceGitBranch') or 'branch unknown'})")
+    print(f"Bin dir в PATH:        {path_is_on_path(bin_dir)}")
+    print(f"DEVCTL_WORKSPACE:      {os.environ.get(DEVCTL_WORKSPACE_ENV) or '[не задан]'}")
+    installed_shells: list[str] = []
+    for shell in SHELLS:
+        target = completion_target_path(shell)
+        exists = target.exists()
+        if exists:
+            installed_shells.append(shell)
+        print(f"Completion {shell}:       {target} {'[есть]' if exists else '[нет]'}")
+    if installed_shells:
+        print_completion_activation_hints(installed_shells)
+    return 0
+
+
+def self_uninstall(args: argparse.Namespace) -> int:
+    bin_dir, app_dir, launcher = install_paths_from_args(args)
+    managed_script = app_dir / "devctl.py"
+    force = bool(getattr(args, "force", False))
+    removed: list[Path] = []
+    if remove_if_managed(launcher, "managed by devctl self install", force=force):
+        removed.append(launcher)
+    if remove_if_managed(managed_script, "devctl", force=True):
+        removed.append(managed_script)
+    if remove_if_managed(install_metadata_path(app_dir), "sourcePath", force=True):
+        removed.append(install_metadata_path(app_dir))
+    if getattr(args, "with_completions", False):
+        for shell in normalize_shells(getattr(args, "shell", "auto")):
+            target = completion_target_path(shell)
+            if remove_if_managed(target, "generated by `devctl completion", force=force):
+                removed.append(target)
+    print_header("devctl self uninstall")
+    if removed:
+        for path in removed:
+            print(f"Удалено: {path}")
+    else:
+        print("Управляемые файлы установки не найдены.")
+    return 0
+
+
+def self_command(args: argparse.Namespace) -> int:
+    action = args.action
+    if action == "install":
+        return self_install_or_update(args, update=False)
+    if action == "update":
+        return self_install_or_update(args, update=True)
+    if action == "info":
+        return self_info(args)
+    if action == "install-completions":
+        written = install_completion_files(getattr(args, "shell", "auto"), force=bool(getattr(args, "force", False)))
+        bin_dir, app_dir, launcher = install_paths_from_args(args)
+        managed_script = app_dir / "devctl.py"
+        metadata = read_install_metadata(app_dir)
+        source_path = metadata.get("sourcePath")
+        source = expand_user_path(source_path).resolve() if isinstance(source_path, str) else Path(__file__).resolve()
+        write_install_metadata(
+            app_dir,
+            source=source,
+            bin_dir=bin_dir,
+            launcher=launcher,
+            managed_script=managed_script,
+            completion_shells=normalize_shells(getattr(args, "shell", "auto")),
+        )
+        print_header("devctl self install-completions")
+        for path in written:
+            print(f"Записано: {path}")
+        print_completion_activation_hints(normalize_shells(getattr(args, "shell", "auto")))
+        return 0
+    if action == "uninstall":
+        return self_uninstall(args)
+    raise DevctlError(f"Неизвестное self-действие: {action}")
+
+
+def completion_command(args: argparse.Namespace) -> int:
+    print(completion_script(args.shell), end="")
+    return 0
+
+
+def parser_subcommands(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return {name: subparser for name, subparser in action.choices.items() if not name.startswith("__")}
+    return {}
+
+
+def parser_option_strings(parser: argparse.ArgumentParser) -> list[str]:
+    options: list[str] = []
+    for action in parser._actions:
+        if action.help == argparse.SUPPRESS:
+            continue
+        options.extend(action.option_strings)
+    return options
+
+
+def completion_filter(candidates: Iterable[str], prefix: str) -> list[str]:
+    result = sorted({item for item in candidates if item.startswith(prefix)})
+    return result
+
+
+def complete_from_parser(parser: argparse.ArgumentParser, words: list[str], position: int) -> list[str]:
+    if words and words[0] == "--":
+        words = words[1:]
+    if not words:
+        words = [DEVCTL_COMMAND_NAME, ""]
+        position = 1
+    if position >= len(words):
+        words.append("")
+    position = max(0, min(position, len(words) - 1))
+    current = words[position] if position < len(words) else ""
+    prior = words[1:position]
+    subcommands = parser_subcommands(parser)
+    global_options = parser_option_strings(parser)
+    global_value_options = {"-w", "--workspace"}
+
+    command: str | None = None
+    skip_next = False
+    for token in prior:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in global_value_options:
+            skip_next = True
+            continue
+        if token in subcommands:
+            command = token
+            break
+
+    if command is None:
+        if current.startswith("-"):
+            return completion_filter(global_options, current)
+        return completion_filter(list(subcommands.keys()), current)
+
+    if command == "completion" and not current.startswith("-"):
+        return completion_filter(SHELLS, current)
+    if command == "self":
+        after_command = prior[prior.index(command) + 1:] if command in prior else []
+        action = next((token for token in after_command if not token.startswith("-")), None)
+        if action is None and not current.startswith("-"):
+            return completion_filter(SELF_ACTIONS, current)
+        if action in {"install-completions"} and not current.startswith("-"):
+            return completion_filter(("auto", *SHELLS), current)
+
+    subparser = subcommands.get(command)
+    if subparser and (current.startswith("-") or current == ""):
+        return completion_filter(parser_option_strings(subparser), current)
+    return []
+
+
+def complete_command(args: argparse.Namespace) -> int:
+    words = list(getattr(args, "words", []) or [])
+    if words and words[0] == "--":
+        words = words[1:]
+    parser = build_parser()
+    for item in complete_from_parser(parser, words, int(args.position)):
+        print(item)
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description=f"devctl v{DEVCTL_VERSION} — проектно-независимый конвейер ИИ-патчей",
+        add_help=False,
+    )
+    parser.add_argument("-h", "--help", action="help", help="показать это сообщение и выйти")
+    parser.add_argument("--version", action="version", version=f"devctl {DEVCTL_VERSION}", help="показать версию devctl и выйти")
+    parser.add_argument(
+        "-w",
+        "--workspace",
+        dest="workspace_override",
+        default=None,
+        help=f"Рабочая область или проект. Также можно задать переменной {DEVCTL_WORKSPACE_ENV}.",
+    )
+    parser._positionals.title = "команды"
+    parser._optionals.title = "параметры"
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar="{init,sync,status,inspect,plan,start,reset,completion,self}")
+
+    init = subparsers.add_parser("init", help="Создать или безопасно обновить структуру workspace")
+    init.add_argument("--workspace", default=None, help="Корень рабочей области. По умолчанию текущий каталог.")
+    init.add_argument("--project", default=DEFAULT_PROJECT_DIR_NAME, help="Каталог проекта относительно рабочей области или абсолютный путь.")
+    init.add_argument("--patches", default=DEFAULT_PATCHES_DIR_NAME, help="Каталог патчей относительно рабочей области.")
+    init.add_argument("--archives", default=DEFAULT_ARCHIVES_DIR_NAME, help="Каталог архивов относительно рабочей области.")
+    init.add_argument("--uts", default=DEFAULT_UTS_DIR_NAME, help="Каталог User Test Space относительно рабочей области.")
+    init.add_argument("--force", action="store_true", help="Перезаписать существующий .devctl/workspace.json")
+    init.add_argument("--upgrade", action="store_true", help="Безопасно актуализировать существующий workspace без перезаписи пользовательских путей")
+    init.add_argument("--json", action="store_true", help="Вывести машинно-читаемый JSON")
+    init.add_argument("--create-project", action="store_true", help="Создать каталог проекта, если его ещё нет")
+    init.add_argument("--git-init", action="store_true", help="Инициализировать локальный Git-репозиторий в каталоге проекта")
+    init.add_argument("--branch", default=None, help="Имя основной ветки для нового Git-репозитория, например main")
+    init.add_argument("--remote-url", default=None, help="Необязательный URL GitHub/Git remote для origin; при указании project/ будет клонирован или синхронизирован через fetch/pull")
+
+    sync = subparsers.add_parser("sync", help="Синхронизировать workspace с GitHub: project -> archives -> UserTestSpace")
+    sync.add_argument("--json", action="store_true", help="Вывести машинно-читаемый JSON")
+    sync.add_argument("--remote", default="origin", help="Имя Git remote. По умолчанию origin")
+    sync.add_argument("--remote-url", default=None, help="GitHub/Git URL для origin; нужен, если локальный project ещё не привязан")
+    sync.add_argument("--branch", default=None, help="Ветка-источник. По умолчанию git.branch из workspace, remote HEAD, текущая ветка или main")
+    sync.add_argument("--discard-local", action="store_true", help="Считать remote источником истины: reset --hard origin/branch + git clean")
+    sync.add_argument("--clean-mode", choices=("fd", "fdx"), default="fd", help="Режим git clean для --discard-local. По умолчанию fd")
+    sync.add_argument("--no-archive", action="store_true", help="Не создавать свежий архив после Git-синхронизации")
+    sync.add_argument("--no-uts", action="store_true", help="Не разворачивать свежий архив в UserTestSpace")
+
+    status = subparsers.add_parser("status", help="Показать состояние рабочей области/Git/патчей без изменений")
+    status.add_argument("--json", action="store_true", help="Вывести машинно-читаемый JSON")
+    inspect = subparsers.add_parser("inspect", help="Проверить zip-патч без изменения файлов")
+    inspect.add_argument("patch", nargs="?", help="Путь/имя zip-патча. По умолчанию последний патч в patches/.")
+    inspect.add_argument("--json", action="store_true", help="Вывести машинно-читаемый JSON")
+    plan = subparsers.add_parser("plan", help="Показать dry-run-план zip-патча без изменения файлов")
+    plan.add_argument("patch", nargs="?", help="Путь/имя zip-патча. По умолчанию последний патч в patches/.")
+    plan.add_argument("--json", action="store_true", help="Вывести машинно-читаемый JSON")
+    start = subparsers.add_parser("start", help="Применить последний неприменённый патч, выполнить проверки, commit и push")
+    start.add_argument("--no-push", action="store_true", help="Отладочный/локальный запуск: commit после зелёных проверок, но без git push")
+    start.add_argument("--keep-failed-patch", action="store_true", help="Не удалять patch.zip автоматически после failed checks/partial apply")
+    start.add_argument("--json", action="store_true", help="Добавить финальную JSON-строку с reportPath/archivePath/commitSha/pushResult")
+
+    reset = subparsers.add_parser("reset", help="Откатить project через git reset --hard и git clean")
+    reset.add_argument("--json", action="store_true", help="Вывести машинно-читаемый JSON")
+    reset.add_argument("--keep-patch", action="store_true", help="Не удалять последний failed patch.zip из patches/")
+    reset.add_argument("--delete-patch", default=None, help="Явно удалить указанный patch.zip внутри patches/ после reset")
+    reset.add_argument("--target", default="HEAD", help="Git target для reset --hard. По умолчанию HEAD")
+    reset.add_argument("--clean-mode", choices=("fd", "fdx"), default="fd", help="Режим git clean: fd или fdx. По умолчанию fd")
+
+    completion = subparsers.add_parser("completion", help="Вывести shell completion для bash, zsh или fish")
+    completion.add_argument("shell", choices=SHELLS, help="Оболочка, для которой нужно вывести completion-скрипт")
+
+    self_cmd = subparsers.add_parser("self", help="Установить, обновить или проверить установленную devctl-утилиту")
+    self_cmd.add_argument("action", choices=SELF_ACTIONS, help="Действие: install/update/info/uninstall/install-completions")
+    self_cmd.add_argument("--bin-dir", default=None, help="Каталог для команды devctl. По умолчанию ~/.local/bin")
+    self_cmd.add_argument("--app-dir", default=None, help="Каталог управляемой копии devctl.py. По умолчанию ~/.local/share/devctl")
+    self_cmd.add_argument("--source", default=None, help="Откуда брать devctl.py при install/update. По умолчанию текущий файл.")
+    self_cmd.add_argument("--with-completions", action="store_true", help="Также установить или удалить completion-файлы")
+    self_cmd.add_argument("--shell", choices=("auto", *SHELLS), default="auto", help="Для какого shell ставить completions. По умолчанию auto = bash+zsh+fish")
+    self_cmd.add_argument("--force", action="store_true", help="Перезаписать или удалить уже существующие управляемые файлы")
+    self_cmd.add_argument("--pull-source", action="store_true", help="Для self update сначала выполнить git fetch + git pull --ff-only в репозитории источника")
+
+    complete = subparsers.add_parser("__complete", help=argparse.SUPPRESS)
+    complete.add_argument("shell", choices=SHELLS)
+    complete.add_argument("--position", type=int, required=True)
+    complete.add_argument("words", nargs=argparse.REMAINDER)
+    # argparse does not hide subcommands with help=SUPPRESS from the grouped help automatically.
+    subparsers._choices_actions = [action for action in subparsers._choices_actions if action.dest != "__complete"]
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        if args.command == "init":
+            return init_command(args)
+        if args.command == "sync":
+            return sync_command(args)
+        if args.command == "status":
+            return status_command(args)
+        if args.command == "inspect":
+            return inspect_command(args)
+        if args.command == "plan":
+            return inspect_command(args, plan=True)
+        if args.command == "start":
+            return start_command(args)
+        if args.command == "reset":
+            return reset_command(args)
+        if args.command == "completion":
+            return completion_command(args)
+        if args.command == "self":
+            return self_command(args)
+        if args.command == "__complete":
+            return complete_command(args)
+    except DevctlError as exc:
+        print(f"[ОШИБКА] {exc}")
+        return 2
+    parser.error(f"неизвестная команда: {args.command}")
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

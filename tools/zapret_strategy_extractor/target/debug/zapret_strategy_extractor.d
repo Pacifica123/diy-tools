@@ -1,0 +1,1 @@
+C:\projects\CODE_projs\DIY-workspace\project\tools\zapret_strategy_extractor\target\debug\zapret_strategy_extractor.exe: C:\projects\CODE_projs\DIY-workspace\project\tools\zapret_strategy_extractor\src\main.rs

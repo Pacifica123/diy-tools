@@ -1,0 +1,5 @@
+2026-06-12T10:00:01Z INFO request id=abc123 user=42 path=/api/items latency=12ms
+2026-06-12T10:00:02Z INFO request id=def456 user=43 path=/api/items latency=18ms
+2026-06-12T10:00:03Z WARN retry id=abc123 host=10.0.0.12 attempt=2
+2026-06-12T10:00:04Z WARN retry id=def456 host=10.0.0.13 attempt=3
+2026-06-12T10:00:05Z ERROR request id=ghi789 user=44 path=/api/orders latency=93ms
