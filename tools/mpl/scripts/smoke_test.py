@@ -71,12 +71,31 @@ TWO_GROUP_SAMPLE = """flowchart TD
 """
 
 
+CLUSTER_SAMPLE = """flowchart TD
+    A[external start] --> B[external middle]
+    subgraph G
+    G1[group one] --> G2[group two] --> G3[group three]
+    end
+    B --> G
+    G --> C[external finish]
+    C --> A
+"""
+
+
 def _boxes_overlap(left, right) -> bool:
     return not (
         left.x + left.width <= right.x
         or right.x + right.width <= left.x
         or left.y + left.height <= right.y
         or right.y + right.height <= left.y
+    )
+
+def _box_contains(outer, inner) -> bool:
+    return (
+        outer.x <= inner.x
+        and outer.y <= inner.y
+        and outer.x + outer.width >= inner.x + inner.width
+        and outer.y + outer.height >= inner.y + inner.height
     )
 
 
@@ -121,6 +140,15 @@ def main() -> int:
     group_boxes = list(two_group_layout.group_boxes.values())
     assert len(group_boxes) == 2
     assert not _boxes_overlap(group_boxes[0], group_boxes[1]), "top-level groups should not overlap visually"
+
+    cluster_diagram = parse_mermaid(CLUSTER_SAMPLE)
+    cluster_layout = build_layout(cluster_diagram)
+    group_box = cluster_layout.group_boxes["G"]
+    assert not _box_contains(group_box, cluster_layout.node_boxes["A"]), "group box must not cover external source-order nodes"
+    assert not _box_contains(group_box, cluster_layout.node_boxes["B"]), "group box must not cover external nodes before the group"
+    assert not _box_contains(group_box, cluster_layout.node_boxes["C"]), "group box must not cover external nodes after the group"
+    cluster_svg = process_text(CLUSTER_SAMPLE, render=True)["svg"]
+    assert "-42.0" not in cluster_svg, "back-edge routing should not use far negative side lanes"
 
     abi_result = json.loads(run_contract_json(json.dumps({"source": SAMPLE, "render": False}, ensure_ascii=False)))
     assert abi_result["abi"]["name"] == "mpl-json"

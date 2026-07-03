@@ -222,20 +222,17 @@ def _orthogonal_vertical(
     *,
     forward: bool,
 ) -> tuple[str, float, float]:
-    direction_sign = 1.0 if forward else -1.0
-    goes_forward = (y2 - y1) * direction_sign >= 18
-    if goes_forward:
-        mid_y = y1 + (y2 - y1) / 2
-        points = [(x1, y1), (x1, mid_y), (x2, mid_y), (x2, y2)]
-        return _path_from_points(points), (x1 + x2) / 2, mid_y - 10 * direction_sign
-
-    # Back-edge or same-rank edge: route it through a side lane so it is not a
-    # mysterious curve through the middle of the graph.
-    lane = _side_lane_x(source, target)
-    exit_y = y1 + 34 * direction_sign
-    entry_y = y2 - 34 * direction_sign
-    points = [(x1, y1), (x1, exit_y), (lane, exit_y), (lane, entry_y), (x2, entry_y), (x2, y2)]
-    return _path_from_points(points), lane, (exit_y + entry_y) / 2
+    # Keep every edge local. v5 used side lanes for back-edges, which often
+    # produced long lines across the top or side of a group. That was technically
+    # deterministic but unreadable. A compact dogleg is less clever and much more
+    # predictable for hand-written architecture diagrams.
+    if abs(x1 - x2) < 1.0:
+        points = [(x1, y1), (x2, y2)]
+        return _path_from_points(points), x1, (y1 + y2) / 2
+    mid_y = y1 + (y2 - y1) / 2
+    points = [(x1, y1), (x1, mid_y), (x2, mid_y), (x2, y2)]
+    label_y = mid_y - 10 if y2 >= y1 else mid_y + 14
+    return _path_from_points(points), (x1 + x2) / 2, label_y
 
 
 def _orthogonal_horizontal(
@@ -248,18 +245,12 @@ def _orthogonal_horizontal(
     *,
     forward: bool,
 ) -> tuple[str, float, float]:
-    direction_sign = 1.0 if forward else -1.0
-    goes_forward = (x2 - x1) * direction_sign >= 18
-    if goes_forward:
-        mid_x = x1 + (x2 - x1) / 2
-        points = [(x1, y1), (mid_x, y1), (mid_x, y2), (x2, y2)]
-        return _path_from_points(points), mid_x, (y1 + y2) / 2 - 10
-
-    lane = _side_lane_y(source, target)
-    exit_x = x1 + 34 * direction_sign
-    entry_x = x2 - 34 * direction_sign
-    points = [(x1, y1), (exit_x, y1), (exit_x, lane), (entry_x, lane), (entry_x, y2), (x2, y2)]
-    return _path_from_points(points), (exit_x + entry_x) / 2, lane
+    if abs(y1 - y2) < 1.0:
+        points = [(x1, y1), (x2, y2)]
+        return _path_from_points(points), (x1 + x2) / 2, y1
+    mid_x = x1 + (x2 - x1) / 2
+    points = [(x1, y1), (mid_x, y1), (mid_x, y2), (x2, y2)]
+    return _path_from_points(points), mid_x, (y1 + y2) / 2 - 10
 
 
 def _side_lane_x(source: Box, target: Box) -> float:
