@@ -1,0 +1,72 @@
+{
+  "kind": "flowchart",
+  "direction": "TD",
+  "nodes": [
+    {
+      "id": "A",
+      "label": "Пишем Mermaid",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "B",
+      "label": "Парсер понял?",
+      "shape": "diamond",
+      "group": null
+    },
+    {
+      "id": "C",
+      "label": "Строим AST",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "D",
+      "label": "Показываем warnings",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "E",
+      "label": "Рисуем SVG-превью",
+      "shape": "rect",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "A",
+      "target": "B",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "B",
+      "target": "C",
+      "label": "да",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "B",
+      "target": "D",
+      "label": "нет",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "C",
+      "target": "E",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    }
+  ],
+  "groups": [],
+  "warnings": []
+}

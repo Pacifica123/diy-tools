@@ -1,0 +1,9 @@
+graph LR
+    subgraph core[Core-слой]
+        P[Parser] --> A[AST JSON]
+        A --> R[SVG renderer]
+    end
+    subgraph gui[Qt GUI]
+        E[Редактор] --> V[Визуальное превью]
+    end
+    R -->|SVG в памяти| V
