@@ -76,8 +76,9 @@ def parse_mermaid(source: str, options: ParserOptions | None = None) -> Diagram:
         parsed_edge = _parse_edge(statement)
         if parsed_edge is not None:
             left, operator, label, right = parsed_edge
-            source_node = _parse_node(left, group_stack[-1] if group_stack else None)
-            target_node = _parse_node(right, group_stack[-1] if group_stack else None)
+            current_group = group_stack[-1] if group_stack else None
+            source_node = _parse_edge_node(left, current_group, diagram)
+            target_node = _parse_edge_node(right, current_group, diagram)
             if not _is_bare_group_reference(left, diagram):
                 diagram.add_node(source_node)
             if not _is_bare_group_reference(right, diagram):
@@ -171,6 +172,32 @@ def _parse_edge(statement: str) -> tuple[str, str, str, str] | None:
             label, right = "", rest[0]
         return left.strip(), operator, _clean_label(label), right.strip()
     return None
+
+
+def _parse_edge_node(raw: str, group_id: str | None, diagram: Diagram) -> Node:
+    node = _parse_node(raw, group_id)
+    if group_id is None:
+        return node
+    old = diagram.nodes.get(node.id)
+    if old is None:
+        return node
+    # A bare reference from inside a subgraph should not silently pull an
+    # already declared external node into that subgraph. Example:
+    #
+    #   A[outside]
+    #   subgraph G
+    #   B --> A
+    #   end
+    #
+    # In v4 this changed A.group to G and made group boxes enormous.
+    if _is_bare_node_reference(raw):
+        node.group = old.group
+    return node
+
+
+def _is_bare_node_reference(raw: str) -> bool:
+    text = raw.strip().strip('"').strip("'")
+    return bool(text) and not any(ch in text for ch in "[](){}")
 
 
 

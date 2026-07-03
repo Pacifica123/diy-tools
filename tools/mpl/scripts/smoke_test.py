@@ -14,6 +14,8 @@ if str(SRC) not in sys.path:
 from mpl.abi import run_contract_json  # noqa: E402
 from mpl.api import process_text  # noqa: E402
 from mpl.cli import main as cli_main  # noqa: E402
+from mpl.core.layout import build_layout  # noqa: E402
+from mpl.core.parser import parse_mermaid  # noqa: E402
 
 
 SAMPLE = """flowchart LR
@@ -50,6 +52,34 @@ FANOUT_SAMPLE = """flowchart TD
 """
 
 
+EXTERNAL_REF_SAMPLE = """flowchart TD
+    Outside[external node]
+    subgraph G
+    Inside[inside node]
+    Inside --> Outside
+    end
+"""
+
+
+TWO_GROUP_SAMPLE = """flowchart TD
+    subgraph One
+    A1[one a] --> A2[one b] --> A3[one c]
+    end
+    subgraph Two
+    B1[two a] --> B2[two b]
+    end
+"""
+
+
+def _boxes_overlap(left, right) -> bool:
+    return not (
+        left.x + left.width <= right.x
+        or right.x + right.width <= left.x
+        or left.y + left.height <= right.y
+        or right.y + right.height <= left.y
+    )
+
+
 def main() -> int:
     result = process_text(SAMPLE, render=True)
     diagram = result["diagram"]
@@ -78,6 +108,19 @@ def main() -> int:
     fanout_svg = fanout_result["svg"]
     first_segment_x_values = re.findall(r'M ([0-9.]+) [0-9.]+ L \1', fanout_svg)
     assert len(set(first_segment_x_values)) >= 3, "fan-out edges should not all leave the source at one identical port"
+    fanout_size = re.search(r'width="([0-9]+)" height="([0-9]+)"', fanout_svg)
+    assert fanout_size is not None
+    assert int(fanout_size.group(1)) < 1300, "fan-out layers should wrap instead of creating a very wide canvas"
+
+    external_diagram = parse_mermaid(EXTERNAL_REF_SAMPLE)
+    external_nodes = {node["id"]: node for node in external_diagram.to_dict()["nodes"]}
+    assert external_nodes["Outside"]["group"] is None, "bare external references inside a subgraph must not adopt that subgraph"
+    assert external_nodes["Inside"]["group"] == "G"
+
+    two_group_layout = build_layout(parse_mermaid(TWO_GROUP_SAMPLE))
+    group_boxes = list(two_group_layout.group_boxes.values())
+    assert len(group_boxes) == 2
+    assert not _boxes_overlap(group_boxes[0], group_boxes[1]), "top-level groups should not overlap visually"
 
     abi_result = json.loads(run_contract_json(json.dumps({"source": SAMPLE, "render": False}, ensure_ascii=False)))
     assert abi_result["abi"]["name"] == "mpl-json"

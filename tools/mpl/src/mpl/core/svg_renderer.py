@@ -3,8 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 from html import escape
-from math import copysign
-
 from .layout import Box, Layout, build_layout, wrapped_label_lines
 from .model import Diagram, Edge, Node
 
@@ -96,15 +94,15 @@ def _stylesheet() -> str:
     return (
         "svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}"
         ".canvas{fill:#ffffff}"
-        ".group{fill:#eef6ff;stroke:#7aa7d9;stroke-width:1.4;stroke-dasharray:7 5}"
-        ".group-label{font-size:13px;fill:#1e3a5f;font-weight:600}"
+        ".group{fill:#f5faff;fill-opacity:.72;stroke:#5d8fc2;stroke-width:1.35;stroke-dasharray:7 5}"
+        ".group-label{font-size:13px;fill:#14324f;font-weight:600}"
         ".node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}"
-        ".node-alt{fill:#f8fbff}"
-        ".node-decision{fill:#fff7e6;stroke:#1f2937;stroke-width:1.45}"
-        ".edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}"
-        ".edge.thick{stroke-width:2.8}"
+        ".node-alt{fill:#fbfdff}"
+        ".node-decision{fill:#fff7df;stroke:#1f2937;stroke-width:1.45}"
+        ".edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:square;stroke-linejoin:miter}"
+        ".edge.thick{stroke-width:2.75}"
         ".edge.dotted{stroke-dasharray:6 6}"
-        ".label-bg{fill:#ffffff;stroke:#94a3b8;stroke-width:.85}"
+        ".label-bg{fill:#ffffff;stroke:#7c8da3;stroke-width:.9}"
         ".text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}"
         ".edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}"
     )
@@ -189,21 +187,29 @@ def _render_edge(edge: Edge, source: Box, target: Box, direction: str, source_of
 
 
 def _orthogonal_path(source: Box, target: Box, direction: str, source_offset: float, target_offset: float) -> tuple[str, float, float]:
-    if direction == "LR":
-        x1, y1 = source.x + source.width, source.cy + source_offset
-        x2, y2 = target.x, target.cy + target_offset
-        return _orthogonal_horizontal(x1, y1, x2, y2, source, target, forward=True)
-    if direction == "RL":
+    """Route from the nearest sensible side of the boxes.
+
+    v4 always used the nominal graph direction, so an upward edge in a TD graph
+    left from the bottom of a node, walked around through a side lane, and often
+    produced a long "where did this come from?" line. v5 chooses the side from
+    actual geometry: below targets use bottom->top, above targets use top->bottom.
+    """
+    if direction in {"LR", "RL"}:
+        if target.cx >= source.cx:
+            x1, y1 = source.x + source.width, source.cy + source_offset
+            x2, y2 = target.x, target.cy + target_offset
+            return _orthogonal_horizontal(x1, y1, x2, y2, source, target, forward=True)
         x1, y1 = source.x, source.cy + source_offset
         x2, y2 = target.x + target.width, target.cy + target_offset
         return _orthogonal_horizontal(x1, y1, x2, y2, source, target, forward=False)
-    if direction == "BT":
-        x1, y1 = source.cx + source_offset, source.y
-        x2, y2 = target.cx + target_offset, target.y + target.height
-        return _orthogonal_vertical(x1, y1, x2, y2, source, target, forward=False)
-    x1, y1 = source.cx + source_offset, source.y + source.height
-    x2, y2 = target.cx + target_offset, target.y
-    return _orthogonal_vertical(x1, y1, x2, y2, source, target, forward=True)
+
+    if target.cy >= source.cy:
+        x1, y1 = source.cx + source_offset, source.y + source.height
+        x2, y2 = target.cx + target_offset, target.y
+        return _orthogonal_vertical(x1, y1, x2, y2, source, target, forward=True)
+    x1, y1 = source.cx + source_offset, source.y
+    x2, y2 = target.cx + target_offset, target.y + target.height
+    return _orthogonal_vertical(x1, y1, x2, y2, source, target, forward=False)
 
 
 def _orthogonal_vertical(
