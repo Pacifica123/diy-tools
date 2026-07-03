@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 
 from mpl.api import process_text
 
@@ -19,7 +19,7 @@ def _load_qt():
     try:
         from PySide6.QtCore import QByteArray, Qt
         from PySide6.QtSvgWidgets import QSvgWidget
-        from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QPlainTextEdit, QScrollArea, QSplitter, QVBoxLayout, QWidget
         return {
             "binding": "PySide6",
             "QApplication": QApplication,
@@ -31,6 +31,7 @@ def _load_qt():
             "QMessageBox": QMessageBox,
             "QPlainTextEdit": QPlainTextEdit,
             "QPushButton": QPushButton,
+            "QScrollArea": QScrollArea,
             "QSplitter": QSplitter,
             "QSvgWidget": QSvgWidget,
             "QVBoxLayout": QVBoxLayout,
@@ -40,7 +41,7 @@ def _load_qt():
     except Exception:
         from PyQt6.QtCore import QByteArray, Qt
         from PyQt6.QtSvgWidgets import QSvgWidget
-        from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QPlainTextEdit, QSplitter, QVBoxLayout, QWidget
+        from PyQt6.QtWidgets import QApplication, QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton, QPlainTextEdit, QScrollArea, QSplitter, QVBoxLayout, QWidget
         return {
             "binding": "PyQt6",
             "QApplication": QApplication,
@@ -52,6 +53,7 @@ def _load_qt():
             "QMessageBox": QMessageBox,
             "QPlainTextEdit": QPlainTextEdit,
             "QPushButton": QPushButton,
+            "QScrollArea": QScrollArea,
             "QSplitter": QSplitter,
             "QSvgWidget": QSvgWidget,
             "QVBoxLayout": QVBoxLayout,
@@ -72,6 +74,7 @@ class MainWindow:
         QPlainTextEdit = qt["QPlainTextEdit"]
         QLabel = qt["QLabel"]
         QSvgWidget = qt["QSvgWidget"]
+        QScrollArea = qt["QScrollArea"]
         Qt = qt["Qt"]
 
         self.window = QMainWindow()
@@ -84,10 +87,18 @@ class MainWindow:
         self.render_button = QPushButton("Отрисовать")
         self.open_button = QPushButton("Открыть .mmd")
         self.save_svg_button = QPushButton("Сохранить SVG")
-        self.status = QLabel(f"Qt: {qt['binding']}. PNG не обязателен: превью строится из SVG в памяти.")
+        self.zoom_out_button = QPushButton("-")
+        self.zoom_in_button = QPushButton("+")
+        self.actual_size_button = QPushButton("100%")
+        self.fit_width_button = QPushButton("По ширине")
+        self.status = QLabel(f"Qt: {qt['binding']}. Превью SVG в памяти; большие схемы теперь прокручиваются, а не сжимаются в пыль.")
         top.addWidget(self.render_button)
         top.addWidget(self.open_button)
         top.addWidget(self.save_svg_button)
+        top.addWidget(self.zoom_out_button)
+        top.addWidget(self.zoom_in_button)
+        top.addWidget(self.actual_size_button)
+        top.addWidget(self.fit_width_button)
         top.addWidget(self.status, 1)
         root_layout.addLayout(top)
 
@@ -95,12 +106,15 @@ class MainWindow:
         self.editor = QPlainTextEdit()
         self.editor.setPlainText(_SAMPLE)
         self.preview = QSvgWidget()
-        self.preview.setMinimumWidth(420)
+        self.preview.setMinimumSize(420, 320)
+        self.preview_scroll = QScrollArea()
+        self.preview_scroll.setWidgetResizable(False)
+        self.preview_scroll.setWidget(self.preview)
         self.report = QPlainTextEdit()
         self.report.setReadOnly(True)
         right = QWidget()
         right_layout = QVBoxLayout(right)
-        right_layout.addWidget(self.preview, 6)
+        right_layout.addWidget(self.preview_scroll, 6)
         right_layout.addWidget(self.report, 2)
         splitter.addWidget(self.editor)
         splitter.addWidget(right)
@@ -109,21 +123,30 @@ class MainWindow:
         self.window.setCentralWidget(root)
 
         self.last_svg = ""
+        self.svg_size = (420, 320)
+        self.zoom = 1.0
         self.render_button.clicked.connect(self.render_current)
         self.open_button.clicked.connect(self.open_file)
         self.save_svg_button.clicked.connect(self.save_svg)
+        self.zoom_out_button.clicked.connect(lambda: self.set_zoom(self.zoom / 1.2))
+        self.zoom_in_button.clicked.connect(lambda: self.set_zoom(self.zoom * 1.2))
+        self.actual_size_button.clicked.connect(lambda: self.set_zoom(1.0))
+        self.fit_width_button.clicked.connect(self.fit_width)
         self.render_current()
 
     def render_current(self) -> None:
         try:
             result = process_text(self.editor.toPlainText(), render=True)
             self.last_svg = result["svg"]
-            self.preview.load(self.qt["QByteArray"](self.last_svg.encode("utf-8")))
+            self.svg_size = _read_svg_size(self.last_svg)
+            self._reload_preview()
             diagram = result["diagram"]
             report_lines = [
                 f"nodes: {len(diagram['nodes'])}",
                 f"edges: {len(diagram['edges'])}",
                 f"groups: {len(diagram['groups'])}",
+                f"svg: {self.svg_size[0]} x {self.svg_size[1]}",
+                f"zoom: {int(self.zoom * 100)}%",
             ]
             if result.get("warnings"):
                 report_lines.append("warnings:")
@@ -131,6 +154,24 @@ class MainWindow:
             self.report.setPlainText("\n".join(report_lines))
         except Exception as exc:  # noqa: BLE001 - GUI boundary.
             self.report.setPlainText(f"Ошибка: {exc}")
+
+    def _reload_preview(self) -> None:
+        if not self.last_svg:
+            return
+        self.preview.load(self.qt["QByteArray"](self.last_svg.encode("utf-8")))
+        width, height = self.svg_size
+        self.preview.setFixedSize(max(32, int(width * self.zoom)), max(32, int(height * self.zoom)))
+
+    def set_zoom(self, zoom: float) -> None:
+        self.zoom = min(3.0, max(0.2, zoom))
+        self._reload_preview()
+        self.status.setText(f"Масштаб: {int(self.zoom * 100)}%")
+        self.render_current()
+
+    def fit_width(self) -> None:
+        width, _ = self.svg_size
+        viewport_width = max(120, self.preview_scroll.viewport().width() - 24)
+        self.set_zoom(viewport_width / max(1, width))
 
     def open_file(self) -> None:
         path, _ = self.qt["QFileDialog"].getOpenFileName(self.window, "Открыть Mermaid", "", "Mermaid (*.mmd *.mermaid *.txt);;All files (*)")
@@ -147,6 +188,13 @@ class MainWindow:
             return
         Path(path).write_text(self.last_svg, encoding="utf-8")
         self.status.setText(f"SVG сохранён: {path}")
+
+
+def _read_svg_size(svg: str) -> tuple[int, int]:
+    match = re.search(r'<svg[^>]*\bwidth="([0-9.]+)"[^>]*\bheight="([0-9.]+)"', svg)
+    if not match:
+        return 420, 320
+    return max(1, int(float(match.group(1)))), max(1, int(float(match.group(2))))
 
 
 def main(argv: list[str] | None = None) -> int:

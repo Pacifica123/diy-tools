@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -22,6 +23,23 @@ SAMPLE = """flowchart LR
 """
 
 
+CYCLE_SAMPLE = """flowchart TD
+    A[Старт] --> B[Проверка]
+    B --> C[Исправление]
+    C --> A
+"""
+
+GROUP_EDGE_SAMPLE = """flowchart TD
+    ToolShelf[DIY tool shelf]
+    subgraph MPL
+    MplGui[Qt GUI]
+    MplCore[core parser]
+    MplGui --> MplCore
+    end
+    ToolShelf --> MPL
+"""
+
+
 def main() -> int:
     result = process_text(SAMPLE, render=True)
     diagram = result["diagram"]
@@ -30,6 +48,16 @@ def main() -> int:
     assert len(diagram["edges"]) == 3, diagram
     assert "Русский вход" in result["svg"]
     assert "marker-end" in result["svg"]
+
+    cycle_result = process_text(CYCLE_SAMPLE, render=True)
+    size_match = re.search(r'width="([0-9]+)" height="([0-9]+)"', cycle_result["svg"])
+    assert size_match is not None
+    assert int(size_match.group(1)) < 900
+    assert int(size_match.group(2)) < 900
+
+    group_result = process_text(GROUP_EDGE_SAMPLE, render=True)
+    assert len(group_result["diagram"]["groups"]) == 1
+    assert not any(node["id"] == "MPL" and node["label"] == "MPL" for node in group_result["diagram"]["nodes"])
 
     abi_result = json.loads(run_contract_json(json.dumps({"source": SAMPLE, "render": False}, ensure_ascii=False)))
     assert abi_result["abi"]["name"] == "mpl-json"

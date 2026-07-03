@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from html import escape
 
-from .layout import Box, build_layout
+from .layout import Box, build_layout, wrapped_label_lines
 from .model import Diagram, Edge, Node
 
 
@@ -49,9 +49,11 @@ def render_svg(diagram: Diagram) -> str:
         )
 
     for edge in diagram.edges:
-        if edge.source not in layout.node_boxes or edge.target not in layout.node_boxes:
+        source_box = _endpoint_box(edge.source, layout)
+        target_box = _endpoint_box(edge.target, layout)
+        if source_box is None or target_box is None:
             continue
-        parts.append(_render_edge(edge, layout.node_boxes[edge.source], layout.node_boxes[edge.target], layout.direction))
+        parts.append(_render_edge(edge, source_box, target_box, layout.direction))
 
     for node_id, node in diagram.nodes.items():
         parts.append(_render_node(node, layout.node_boxes[node_id]))
@@ -61,6 +63,10 @@ def render_svg(diagram: Diagram) -> str:
         parts.append(f'<text x="12" y="{layout.height - 12:.1f}" font-size="11" fill="#64748b">{escape(warning_text)}</text>')
     parts.append("</svg>")
     return "\n".join(parts)
+
+
+def _endpoint_box(item_id: str, layout) -> Box | None:
+    return layout.node_boxes.get(item_id) or layout.group_boxes.get(item_id)
 
 
 def _render_edge(edge: Edge, source: Box, target: Box, direction: str) -> str:
@@ -149,7 +155,7 @@ def _render_special_shape(shape: str, box: Box) -> str:
 
 
 def _render_node_text(label: str, box: Box) -> str:
-    lines = label.splitlines() or [label]
+    lines = wrapped_label_lines(label)
     line_height = 17
     start_y = box.cy - (len(lines) - 1) * line_height / 2
     parts = []

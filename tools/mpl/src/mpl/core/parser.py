@@ -78,8 +78,10 @@ def parse_mermaid(source: str, options: ParserOptions | None = None) -> Diagram:
             left, operator, label, right = parsed_edge
             source_node = _parse_node(left, group_stack[-1] if group_stack else None)
             target_node = _parse_node(right, group_stack[-1] if group_stack else None)
-            diagram.add_node(source_node)
-            diagram.add_node(target_node)
+            if not _is_bare_group_reference(left, diagram):
+                diagram.add_node(source_node)
+            if not _is_bare_group_reference(right, diagram):
+                diagram.add_node(target_node)
             diagram.add_edge(_edge_from_operator(source_node.id, target_node.id, operator, label))
             continue
 
@@ -169,6 +171,14 @@ def _parse_edge(statement: str) -> tuple[str, str, str, str] | None:
             label, right = "", rest[0]
         return left.strip(), operator, _clean_label(label), right.strip()
     return None
+
+
+
+def _is_bare_group_reference(raw: str, diagram: Diagram) -> bool:
+    text = raw.strip().strip('"').strip("'")
+    if any(ch in text for ch in "[](){}"):
+        return False
+    return text in diagram.groups
 
 
 def _edge_from_operator(source: str, target: str, operator: str, label: str) -> Edge:
