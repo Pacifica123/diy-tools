@@ -39,6 +39,16 @@ GROUP_EDGE_SAMPLE = """flowchart TD
     ToolShelf --> MPL
 """
 
+FANOUT_SAMPLE = """flowchart TD
+    ToolCapsule[tool capsule]
+    ToolCapsule --> Readme[README.md]
+    ToolCapsule --> ToolIni[tool.ini]
+    ToolCapsule --> RunBat[run.bat]
+    ToolCapsule --> RunSh[run.sh]
+    ToolCapsule --> Src[src]
+    ToolCapsule --> Examples[examples]
+"""
+
 
 def main() -> int:
     result = process_text(SAMPLE, render=True)
@@ -48,16 +58,26 @@ def main() -> int:
     assert len(diagram["edges"]) == 3, diagram
     assert "Русский вход" in result["svg"]
     assert "marker-end" in result["svg"]
+    assert "#ffffff" in result["svg"]
+    assert ".node-decision" in result["svg"]
 
     cycle_result = process_text(CYCLE_SAMPLE, render=True)
     size_match = re.search(r'width="([0-9]+)" height="([0-9]+)"', cycle_result["svg"])
     assert size_match is not None
     assert int(size_match.group(1)) < 900
     assert int(size_match.group(2)) < 900
+    assert " C " not in cycle_result["svg"], "edge routing should use orthogonal line segments, not cubic splines"
 
     group_result = process_text(GROUP_EDGE_SAMPLE, render=True)
+    group_svg = group_result["svg"]
     assert len(group_result["diagram"]["groups"]) == 1
     assert not any(node["id"] == "MPL" and node["label"] == "MPL" for node in group_result["diagram"]["nodes"])
+    assert group_svg.index('<g class="groups">') < group_svg.index('<g class="edges">') < group_svg.index('<g class="edge-labels">') < group_svg.index('<g class="nodes">') < group_svg.index('<g class="node-labels">')
+
+    fanout_result = process_text(FANOUT_SAMPLE, render=True)
+    fanout_svg = fanout_result["svg"]
+    first_segment_x_values = re.findall(r'M ([0-9.]+) [0-9.]+ L \1', fanout_svg)
+    assert len(set(first_segment_x_values)) >= 3, "fan-out edges should not all leave the source at one identical port"
 
     abi_result = json.loads(run_contract_json(json.dumps({"source": SAMPLE, "render": False}, ensure_ascii=False)))
     assert abi_result["abi"]["name"] == "mpl-json"

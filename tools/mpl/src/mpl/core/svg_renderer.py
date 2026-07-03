@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections import defaultdict
+from dataclasses import dataclass
 from html import escape
+from math import copysign
 
-from .layout import Box, build_layout, wrapped_label_lines
+from .layout import Box, Layout, build_layout, wrapped_label_lines
 from .model import Diagram, Edge, Node
 
 
@@ -10,8 +13,37 @@ class SvgRenderError(ValueError):
     pass
 
 
+@dataclass(slots=True)
+class _RoutedEdge:
+    path: str
+    label_x: float
+    label_y: float
+    css_class: str
+    marker_start: bool
+    marker_end: bool
+    label: str
+
+
 def render_svg(diagram: Diagram) -> str:
     layout = build_layout(diagram)
+    routed_edges = _route_edges(diagram, layout)
+    node_shapes: list[str] = []
+    node_texts: list[str] = []
+    edge_paths: list[str] = []
+    edge_labels: list[str] = []
+
+    for edge, routed in routed_edges:
+        marker_end = ' marker-end="url(#arrow)"' if routed.marker_end else ""
+        marker_start = ' marker-start="url(#arrow)"' if routed.marker_start else ""
+        edge_paths.append(f'<path class="{routed.css_class}" d="{routed.path}"{marker_start}{marker_end} />')
+        if routed.label:
+            edge_labels.append(_render_edge_label(routed.label, routed.label_x, routed.label_y))
+
+    for node_id, node in diagram.nodes.items():
+        shape, text = _render_node_parts(node, layout.node_boxes[node_id])
+        node_shapes.append(shape)
+        node_texts.append(text)
+
     parts: list[str] = []
     parts.append(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{layout.width:.0f}" height="{layout.height:.0f}" '
@@ -19,44 +51,39 @@ def render_svg(diagram: Diagram) -> str:
     )
     parts.append("<defs>")
     parts.append(
-        '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">'
-        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#263238" /></marker>'
+        '<marker id="arrow" viewBox="0 0 10 10" refX="8.8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" /></marker>'
     )
     parts.append("</defs>")
     parts.append("<style><![CDATA[")
-    parts.append(
-        "svg{background:#f8fafc;font-family:Arial,'DejaVu Sans',sans-serif}"
-        ".group{fill:#eef2ff;stroke:#94a3b8;stroke-width:1.2;stroke-dasharray:6 5}"
-        ".group-label{font-size:13px;fill:#334155;font-weight:600}"
-        ".node{fill:#ffffff;stroke:#263238;stroke-width:1.4}"
-        ".node-alt{fill:#f1f5f9}"
-        ".edge{fill:none;stroke:#263238;stroke-width:1.4}"
-        ".edge.thick{stroke-width:2.8}"
-        ".edge.dotted{stroke-dasharray:5 5}"
-        ".label-bg{fill:#f8fafc;stroke:#cbd5e1;stroke-width:.7}"
-        ".text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}"
-        ".edge-label{font-size:12px;fill:#1f2937;text-anchor:middle;dominant-baseline:middle}"
-    )
+    parts.append(_stylesheet())
     parts.append("]]></style>")
 
+    # Explicit z-order. The order is part of the renderer contract because it
+    # keeps edges from visually eating nodes and keeps edge labels legible.
+    parts.append(f'<rect class="canvas" x="0" y="0" width="{layout.width:.0f}" height="{layout.height:.0f}" />')
+    parts.append('<g class="groups">')
     for group_id, box in layout.group_boxes.items():
         group = diagram.groups[group_id]
         parts.append(
-            f'<rect class="group" x="{box.x:.1f}" y="{box.y:.1f}" width="{box.width:.1f}" height="{box.height:.1f}" rx="14" />'
+            f'<rect class="group" x="{box.x:.1f}" y="{box.y:.1f}" width="{box.width:.1f}" height="{box.height:.1f}" rx="16" />'
         )
         parts.append(
-            f'<text class="group-label" x="{box.x + 12:.1f}" y="{box.y + 20:.1f}">{escape(group.label)}</text>'
+            f'<text class="group-label" x="{box.x + 14:.1f}" y="{box.y + 22:.1f}">{escape(group.label)}</text>'
         )
-
-    for edge in diagram.edges:
-        source_box = _endpoint_box(edge.source, layout)
-        target_box = _endpoint_box(edge.target, layout)
-        if source_box is None or target_box is None:
-            continue
-        parts.append(_render_edge(edge, source_box, target_box, layout.direction))
-
-    for node_id, node in diagram.nodes.items():
-        parts.append(_render_node(node, layout.node_boxes[node_id]))
+    parts.append('</g>')
+    parts.append('<g class="edges">')
+    parts.extend(edge_paths)
+    parts.append('</g>')
+    parts.append('<g class="edge-labels">')
+    parts.extend(edge_labels)
+    parts.append('</g>')
+    parts.append('<g class="nodes">')
+    parts.extend(node_shapes)
+    parts.append('</g>')
+    parts.append('<g class="node-labels">')
+    parts.extend(node_texts)
+    parts.append('</g>')
 
     if diagram.warnings:
         warning_text = f"warnings: {len(diagram.warnings)}"
@@ -65,45 +92,204 @@ def render_svg(diagram: Diagram) -> str:
     return "\n".join(parts)
 
 
-def _endpoint_box(item_id: str, layout) -> Box | None:
+def _stylesheet() -> str:
+    return (
+        "svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}"
+        ".canvas{fill:#ffffff}"
+        ".group{fill:#eef6ff;stroke:#7aa7d9;stroke-width:1.4;stroke-dasharray:7 5}"
+        ".group-label{font-size:13px;fill:#1e3a5f;font-weight:600}"
+        ".node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}"
+        ".node-alt{fill:#f8fbff}"
+        ".node-decision{fill:#fff7e6;stroke:#1f2937;stroke-width:1.45}"
+        ".edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:round;stroke-linejoin:round}"
+        ".edge.thick{stroke-width:2.8}"
+        ".edge.dotted{stroke-dasharray:6 6}"
+        ".label-bg{fill:#ffffff;stroke:#94a3b8;stroke-width:.85}"
+        ".text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}"
+        ".edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}"
+    )
+
+
+def _endpoint_box(item_id: str, layout: Layout) -> Box | None:
     return layout.node_boxes.get(item_id) or layout.group_boxes.get(item_id)
 
 
-def _render_edge(edge: Edge, source: Box, target: Box, direction: str) -> str:
-    x1, y1, x2, y2 = _edge_points(source, target, direction)
-    if direction in {"LR", "RL"}:
-        mid = (x1 + x2) / 2
-        path = f"M {x1:.1f} {y1:.1f} C {mid:.1f} {y1:.1f}, {mid:.1f} {y2:.1f}, {x2:.1f} {y2:.1f}"
-    else:
-        mid = (y1 + y2) / 2
-        path = f"M {x1:.1f} {y1:.1f} C {x1:.1f} {mid:.1f}, {x2:.1f} {mid:.1f}, {x2:.1f} {y2:.1f}"
-    classes = "edge " + edge.style
-    marker_end = ' marker-end="url(#arrow)"' if edge.directed else ""
-    marker_start = ' marker-start="url(#arrow)"' if edge.bidirectional else ""
-    label_x = (x1 + x2) / 2
-    label_y = (y1 + y2) / 2 - 8
-    label = ""
-    if edge.label:
-        safe = escape(edge.label)
-        width = max(34, min(180, len(edge.label) * 7 + 18))
-        label = (
-            f'<rect class="label-bg" x="{label_x - width / 2:.1f}" y="{label_y - 10:.1f}" width="{width:.1f}" height="20" rx="6" />'
-            f'<text class="edge-label" x="{label_x:.1f}" y="{label_y:.1f}">{safe}</text>'
-        )
-    return f'<path class="{classes}" d="{path}"{marker_start}{marker_end} />{label}'
+def _route_edges(diagram: Diagram, layout: Layout) -> list[tuple[Edge, _RoutedEdge]]:
+    endpoint_boxes = {**layout.group_boxes, **layout.node_boxes}
+    routeable: list[tuple[int, Edge]] = []
+    for index, edge in enumerate(diagram.edges):
+        if edge.source in endpoint_boxes and edge.target in endpoint_boxes:
+            routeable.append((index, edge))
+
+    source_offsets, target_offsets = _port_offsets(routeable, endpoint_boxes, layout.direction)
+    routed: list[tuple[Edge, _RoutedEdge]] = []
+    for index, edge in routeable:
+        source = endpoint_boxes[edge.source]
+        target = endpoint_boxes[edge.target]
+        routed.append((edge, _render_edge(edge, source, target, layout.direction, source_offsets[index], target_offsets[index])))
+    return routed
 
 
-def _edge_points(source: Box, target: Box, direction: str) -> tuple[float, float, float, float]:
+def _port_offsets(
+    indexed_edges: list[tuple[int, Edge]],
+    boxes: dict[str, Box],
+    direction: str,
+) -> tuple[dict[int, float], dict[int, float]]:
+    horizontal = direction in {"LR", "RL"}
+    by_source: dict[str, list[tuple[int, Edge]]] = defaultdict(list)
+    by_target: dict[str, list[tuple[int, Edge]]] = defaultdict(list)
+    for item in indexed_edges:
+        _, edge = item
+        by_source[edge.source].append(item)
+        by_target[edge.target].append(item)
+
+    source_offsets: dict[int, float] = {}
+    target_offsets: dict[int, float] = {}
+
+    def center_for_target(item: tuple[int, Edge]) -> float:
+        _, edge = item
+        box = boxes[edge.target]
+        return box.cy if horizontal else box.cx
+
+    def center_for_source(item: tuple[int, Edge]) -> float:
+        _, edge = item
+        box = boxes[edge.source]
+        return box.cy if horizontal else box.cx
+
+    for source_id, items in by_source.items():
+        span = (boxes[source_id].height if horizontal else boxes[source_id].width) * 0.70
+        for slot, (index, _) in enumerate(sorted(items, key=center_for_target)):
+            source_offsets[index] = _slot_offset(slot, len(items), span)
+    for target_id, items in by_target.items():
+        span = (boxes[target_id].height if horizontal else boxes[target_id].width) * 0.70
+        for slot, (index, _) in enumerate(sorted(items, key=center_for_source)):
+            target_offsets[index] = _slot_offset(slot, len(items), span)
+    return source_offsets, target_offsets
+
+
+def _slot_offset(slot: int, count: int, span: float) -> float:
+    if count <= 1:
+        return 0.0
+    step = min(24.0, max(10.0, span / max(1, count - 1)))
+    return (slot - (count - 1) / 2) * step
+
+
+def _render_edge(edge: Edge, source: Box, target: Box, direction: str, source_offset: float, target_offset: float) -> _RoutedEdge:
+    path, label_x, label_y = _orthogonal_path(source, target, direction, source_offset, target_offset)
+    css_class = "edge " + edge.style
+    return _RoutedEdge(
+        path=path,
+        label_x=label_x,
+        label_y=label_y,
+        css_class=css_class,
+        marker_start=edge.bidirectional,
+        marker_end=edge.directed,
+        label=edge.label,
+    )
+
+
+def _orthogonal_path(source: Box, target: Box, direction: str, source_offset: float, target_offset: float) -> tuple[str, float, float]:
     if direction == "LR":
-        return source.x + source.width, source.cy, target.x, target.cy
+        x1, y1 = source.x + source.width, source.cy + source_offset
+        x2, y2 = target.x, target.cy + target_offset
+        return _orthogonal_horizontal(x1, y1, x2, y2, source, target, forward=True)
     if direction == "RL":
-        return source.x, source.cy, target.x + target.width, target.cy
+        x1, y1 = source.x, source.cy + source_offset
+        x2, y2 = target.x + target.width, target.cy + target_offset
+        return _orthogonal_horizontal(x1, y1, x2, y2, source, target, forward=False)
     if direction == "BT":
-        return source.cx, source.y, target.cx, target.y + target.height
-    return source.cx, source.y + source.height, target.cx, target.y
+        x1, y1 = source.cx + source_offset, source.y
+        x2, y2 = target.cx + target_offset, target.y + target.height
+        return _orthogonal_vertical(x1, y1, x2, y2, source, target, forward=False)
+    x1, y1 = source.cx + source_offset, source.y + source.height
+    x2, y2 = target.cx + target_offset, target.y
+    return _orthogonal_vertical(x1, y1, x2, y2, source, target, forward=True)
 
 
-def _render_node(node: Node, box: Box) -> str:
+def _orthogonal_vertical(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    source: Box,
+    target: Box,
+    *,
+    forward: bool,
+) -> tuple[str, float, float]:
+    direction_sign = 1.0 if forward else -1.0
+    goes_forward = (y2 - y1) * direction_sign >= 18
+    if goes_forward:
+        mid_y = y1 + (y2 - y1) / 2
+        points = [(x1, y1), (x1, mid_y), (x2, mid_y), (x2, y2)]
+        return _path_from_points(points), (x1 + x2) / 2, mid_y - 10 * direction_sign
+
+    # Back-edge or same-rank edge: route it through a side lane so it is not a
+    # mysterious curve through the middle of the graph.
+    lane = _side_lane_x(source, target)
+    exit_y = y1 + 34 * direction_sign
+    entry_y = y2 - 34 * direction_sign
+    points = [(x1, y1), (x1, exit_y), (lane, exit_y), (lane, entry_y), (x2, entry_y), (x2, y2)]
+    return _path_from_points(points), lane, (exit_y + entry_y) / 2
+
+
+def _orthogonal_horizontal(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    source: Box,
+    target: Box,
+    *,
+    forward: bool,
+) -> tuple[str, float, float]:
+    direction_sign = 1.0 if forward else -1.0
+    goes_forward = (x2 - x1) * direction_sign >= 18
+    if goes_forward:
+        mid_x = x1 + (x2 - x1) / 2
+        points = [(x1, y1), (mid_x, y1), (mid_x, y2), (x2, y2)]
+        return _path_from_points(points), mid_x, (y1 + y2) / 2 - 10
+
+    lane = _side_lane_y(source, target)
+    exit_x = x1 + 34 * direction_sign
+    entry_x = x2 - 34 * direction_sign
+    points = [(x1, y1), (exit_x, y1), (exit_x, lane), (entry_x, lane), (entry_x, y2), (x2, y2)]
+    return _path_from_points(points), (exit_x + entry_x) / 2, lane
+
+
+def _side_lane_x(source: Box, target: Box) -> float:
+    if source.cx <= target.cx:
+        return min(source.x, target.x) - 42.0
+    return max(source.x + source.width, target.x + target.width) + 42.0
+
+
+def _side_lane_y(source: Box, target: Box) -> float:
+    if source.cy <= target.cy:
+        return min(source.y, target.y) - 42.0
+    return max(source.y + source.height, target.y + target.height) + 42.0
+
+
+def _path_from_points(points: list[tuple[float, float]]) -> str:
+    if not points:
+        return ""
+    compact: list[tuple[float, float]] = []
+    for point in points:
+        if compact and abs(compact[-1][0] - point[0]) < 0.1 and abs(compact[-1][1] - point[1]) < 0.1:
+            continue
+        compact.append(point)
+    head, *tail = compact
+    return "M " + f"{head[0]:.1f} {head[1]:.1f}" + "".join(f" L {x:.1f} {y:.1f}" for x, y in tail)
+
+
+def _render_edge_label(label: str, x: float, y: float) -> str:
+    safe = escape(label)
+    width = max(36, min(210, len(label) * 7 + 20))
+    return (
+        f'<rect class="label-bg" x="{x - width / 2:.1f}" y="{y - 11:.1f}" width="{width:.1f}" height="22" rx="7" />'
+        f'<text class="edge-label" x="{x:.1f}" y="{y:.1f}">{safe}</text>'
+    )
+
+
+def _render_node_parts(node: Node, box: Box) -> tuple[str, str]:
     shape = node.shape
     if shape == "diamond":
         points = [
@@ -113,7 +299,7 @@ def _render_node(node: Node, box: Box) -> str:
             (box.x, box.cy),
         ]
         point_text = " ".join(f"{x:.1f},{y:.1f}" for x, y in points)
-        body = f'<polygon class="node" points="{point_text}" />'
+        body = f'<polygon class="node-decision" points="{point_text}" />'
     elif shape == "circle":
         body = f'<ellipse class="node" cx="{box.cx:.1f}" cy="{box.cy:.1f}" rx="{box.width / 2:.1f}" ry="{box.height / 2:.1f}" />'
     elif shape == "round":
@@ -122,7 +308,7 @@ def _render_node(node: Node, box: Box) -> str:
         body = _render_special_shape(shape, box)
     else:
         body = f'<rect class="node" x="{box.x:.1f}" y="{box.y:.1f}" width="{box.width:.1f}" height="{box.height:.1f}" rx="9" />'
-    return body + _render_node_text(node.label, box)
+    return body, _render_node_text(node.label, box)
 
 
 def _render_special_shape(shape: str, box: Box) -> str:
@@ -131,8 +317,8 @@ def _render_special_shape(shape: str, box: Box) -> str:
         inner_right = box.x + box.width - 12
         return (
             f'<rect class="node node-alt" x="{box.x:.1f}" y="{box.y:.1f}" width="{box.width:.1f}" height="{box.height:.1f}" rx="5" />'
-            f'<line x1="{inner_left:.1f}" y1="{box.y:.1f}" x2="{inner_left:.1f}" y2="{box.y + box.height:.1f}" stroke="#263238" />'
-            f'<line x1="{inner_right:.1f}" y1="{box.y:.1f}" x2="{inner_right:.1f}" y2="{box.y + box.height:.1f}" stroke="#263238" />'
+            f'<line x1="{inner_left:.1f}" y1="{box.y:.1f}" x2="{inner_left:.1f}" y2="{box.y + box.height:.1f}" stroke="#1f2937" />'
+            f'<line x1="{inner_right:.1f}" y1="{box.y:.1f}" x2="{inner_right:.1f}" y2="{box.y + box.height:.1f}" stroke="#1f2937" />'
         )
     if shape == "cylinder":
         return (
