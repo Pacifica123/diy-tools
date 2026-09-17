@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.dont_write_bytecode = True
@@ -15,6 +16,8 @@ ROOT = Path(__file__).resolve().parents[1]
 TOOLS = ROOT / "tools"
 EXPECTED = {
     "devctl_universal",
+    "markdown_splitter",
+    "mpl",
     "random_wheel_app",
     "anime_rerank_tournament",
     "logheaderparser",
@@ -149,10 +152,27 @@ def check_node_package() -> None:
 
 
 def run_python_smoke(tool_id: str) -> None:
-    script = TOOLS / tool_id / "scripts" / "smoke_test.py"
+    tool_root = TOOLS / tool_id
+    script = tool_root / "scripts" / "smoke_test.py"
     env = os.environ.copy()
     env["PYTHONDONTWRITEBYTECODE"] = "1"
-    result = subprocess.run([sys.executable, str(script)], cwd=TOOLS / tool_id, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+
+    # Rust smoke tests must never build into the capsule's own target/.
+    # Some historical capsules even contain tracked target metadata, so a
+    # normal `cargo run` can dirty the repository after an otherwise successful
+    # check and make devctl refuse the commit.  A temporary CARGO_TARGET_DIR
+    # keeps the build real while making the shelf check hermetic.
+    with tempfile.TemporaryDirectory(prefix=f"diy_{tool_id}_cargo_") as cargo_target:
+        if (tool_root / "Cargo.toml").is_file():
+            env["CARGO_TARGET_DIR"] = cargo_target
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            cwd=tool_root,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
+        )
     if result.returncode != 0:
         print(result.stdout)
         print(result.stderr, file=sys.stderr)
@@ -161,7 +181,7 @@ def run_python_smoke(tool_id: str) -> None:
 
 
 def run_smokes() -> None:
-    for tool_id in ["random_wheel_app", "anime_rerank_tournament", "video_converter", "devctl_universal", "logheaderparser", "zapret_strategy_extractor"]:
+    for tool_id in ["random_wheel_app", "anime_rerank_tournament", "video_converter", "devctl_universal", "logheaderparser", "zapret_strategy_extractor", "mpl", "markdown_splitter"]:
         run_python_smoke(tool_id)
     node = shutil.which("node")
     if node:

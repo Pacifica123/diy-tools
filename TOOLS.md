@@ -4,6 +4,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|
 | devctl_universal | Devctl universal | tooling | M3 | D,O,P,G | cli/gui/patch_zip_manifest | Win expected / Linux expected | possible Git push | yes | tools/devctl_universal | python scripts/smoke_test.py |
 | mpl | Mermaid Processor Lite | diagrams | M2 | G | gui/cli/api/json_contract | Win expected / Linux expected | no | no | tools/mpl | python scripts/smoke_test.py |
+| markdown_splitter | Нарезчик Markdown | text | M2 | P,G | cli/json_report | Win expected / Linux expected | no | no | tools/markdown_splitter | python scripts/smoke_test.py |
 | random_wheel_app | Колесо рандома | decision | M2 | I | gui/simple_files | Win expected / Linux expected | no | no | tools/random_wheel_app | python scripts/smoke_test.py |
 | anime_rerank_tournament | Турнир переоценки аниме | ranking | M2 | I | gui/simple_files | Win expected / Linux expected | no | no | tools/anime_rerank_tournament | python scripts/smoke_test.py |
 | logheaderparser | Потоковый парсер шаблонов логов | logs | M2 | S,P | cli/json_report | Win expected / Linux expected | no | no | tools/logheaderparser | python scripts/smoke_test.py |
