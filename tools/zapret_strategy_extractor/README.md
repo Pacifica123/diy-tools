@@ -1,13 +1,14 @@
 # zapret_strategy_extractor
 
-Статус: `draft`  
-Зрелость: `M2`  
+Статус: `working`  
+Зрелость: `M3`  
 Флаги: `S, G, P`  
-Основной интерфейс: `cli`
+Основной интерфейс: `cli`  
+Версия: `0.2.0`
 
 ## Что делает
 
-Rust CLI, который потоково читает `orchestra_*.log` из zapret 2 GUI, извлекает LOCK/SUCCESS-события стратегий и генерирует best-effort preset-кандидат плюс audit-файлы.
+Rust CLI, который потоково читает `orchestra_*.log` из zapret 2 GUI, извлекает события стратегий (LOCK, SUCCESS, FAIL, AUTO-UNLOCK) и генерирует best-effort preset-кандидат плюс два audit-файла.
 
 ## Когда использовать
 
@@ -18,40 +19,44 @@ Rust CLI, который потоково читает `orchestra_*.log` из za
 Linux:
 
 ```bash
-sh run.sh examples/sample_orchestra.log --preset-out preset.txt --stats-out stats.json --events-out events.tsv --progress-lines 0
+sh run.sh "examples/input/orchestra сессия.log" --preset-out preset.txt --stats-out stats.json --events-out events.tsv --progress-lines 0
 ```
 
 Windows:
 
 ```powershell
-run.bat examples\sample_orchestra.log --preset-out preset.txt --stats-out stats.json --events-out events.tsv --progress-lines 0
+run.bat "examples\input\orchestra сессия.log" --preset-out preset.txt --stats-out stats.json --events-out events.tsv --progress-lines 0
 ```
 
 Напрямую:
 
 ```bash
-cargo run -- examples/sample_orchestra.log --preset-out preset.txt --stats-out stats.json --events-out events.tsv --progress-lines 0
+cargo run -- "examples/input/orchestra сессия.log" --preset-out preset.txt --stats-out stats.json --events-out events.tsv --progress-lines 0
 ```
+
+Лаунчеры не меняют текущую папку: относительные пути считаются от места, где запущена команда. Без `--preset-out`, `--stats-out`, `--events-out` файлы создаются в текущей папке под именами по умолчанию.
 
 ## Вход
 
-Оригинальный `orchestra_*.log`, а не агрегированный `report.json`. Опционально можно передать `--base-preset`, чтобы сохранить рабочий header/base preset.
+Оригинальный `orchestra_*.log` в UTF-8, а не агрегированный `report.json`. Опционально `--base-preset`, чтобы сохранить заголовок рабочего preset. Какие строки лога распознаются — в `docs/CONTRACT.md`.
 
 ## Выход
 
-- generated preset `.txt`;
-- JSON stats/audit report;
-- TSV event list для ручной проверки.
+- preset `.txt` — кандидат для ручной проверки;
+- `stats.json` — статистика и оценка по каждой стратегии, все события, пометки best-effort;
+- `events.tsv` — список событий для просмотра в таблице.
 
-Generated preset — гипотеза, а не готовая истина. Перед применением к реальной конфигурации его нужно проверить вручную.
+В конце печатается сводка `Готово.` с путями к файлам.
+
+Сгенерированный preset — гипотеза, а не готовая истина. Перед применением к реальной конфигурации его нужно проверить вручную.
 
 ## Побочные эффекты и предупреждения
 
 - Удаляет файлы: нет.
-- Перезаписывает файлы: да, если output-файлы уже существуют.
-- Использует сеть: нет.
+- Перезаписывает файлы: да, если выходные файлы уже существуют. Лог и `--base-preset` не изменяются.
+- Использует сеть: нет (сеть нужна только cargo при первой сборке, чтобы скачать зависимости).
 - Запускает внешние команды: нет.
-- Может содержать приватные данные: да, stats/events могут содержать targets/domains из лога.
+- Может содержать приватные данные: да, все три выходных файла содержат цели (домены, адреса) из лога.
 
 ## Интерфейсы
 
@@ -59,7 +64,7 @@ Generated preset — гипотеза, а не готовая истина. Пе
 |---|---|---|
 | core | embedded | логика в `src/main.rs` |
 | api | no | library crate не выделен |
-| abi | generated_files | preset + JSON + TSV |
+| abi | generated_files | preset + JSON + TSV, контракт версии 1 |
 | cli | yes | clap CLI |
 | gui | no | не требуется |
 | apk | no | не требуется |
@@ -68,8 +73,12 @@ Generated preset — гипотеза, а не готовая истина. Пе
 ## Зависимости
 
 - Rust: stable toolchain, edition 2021.
-- Cargo crates: `anyhow`, `clap`, `regex`, `serde`, `serde_json`.
+- Cargo crates: `anyhow`, `clap`, `regex`, `serde`, `serde_json`; версии зафиксированы в `Cargo.lock`.
 - external: `none`.
+
+## Контракт
+
+`docs/CONTRACT.md`, версия контракта 1: вызов, аргументы, распознаваемые строки лога, формат preset, `stats.json` и `events.tsv`, формула оценки, коды возврата. В каждом `stats.json` есть поле `"contract_version": 1`.
 
 ## Проверка
 
@@ -77,14 +86,36 @@ Generated preset — гипотеза, а не готовая истина. Пе
 python scripts/smoke_test.py
 ```
 
-Если `cargo` доступен, smoke-тест выполнит `cargo run` на sample log и проверит наличие preset/stats/events. Если `cargo` недоступен, будет выполнена source-level проверка.
+Если `cargo` доступен, smoke-тест:
+
+- собирает инструмент во временный каталог (в `target/` капсулы ничего не пишется) с `--locked`;
+- прогоняет три сценария на `examples/input` и сравнивает preset, `stats.json` и `events.tsv` с `examples/output_expected` целиком: обычный режим, режим с `--base-preset` и ограничениями (`--include-success-only`, `--no-hostlist-domains`, `--max-blocks`, `--min-locks`, свои фильтры), старый короткий пример;
+- проверяет пометку best-effort в preset, неизменность входных файлов, прогресс в stderr, имена файлов по умолчанию и понятную ошибку для отсутствующего лога.
+
+Если `cargo` недоступен, проверяются только исходники, паспорт и эталоны, и тест прямо пишет, что сборка и регрессия пропущены.
+
+Чего проверка не покрывает: настоящий orchestra-лог (примеры синтетические, построены по шаблонам строк из парсера), Windows и `run.bat`, большие файлы.
+
+Честная оговорка к версии 0.2.0: её автор не мог собрать Rust-код (не было доступа к crates.io). Правки исходника — только тексты сообщений, справки и поле `contract_version`, эталоны выведены из алгоритма. Первая настоящая сборка и сверка происходят у владельца; до неё статус — `working`, Linux — `expected`.
+
+Чтобы повторные прогоны шли быстрее, задайте `CARGO_TARGET_DIR` на каталог вне капсулы: тест использует его вместо временного.
+
+## История
+
+`CHANGELOG.md`.
 
 ## Как изменить под себя
 
-- Парсинг log-событий: `parse_*` функции в `src/main.rs`.
-- Scoring: `score_strategy`.
+- Разбор строк лога: функции `parse_*` в `src/main.rs`.
+- Оценка стратегии: `score_strategy`.
 - Генерация preset: `write_preset`.
+- После изменения разбора или генерации эталоны в `examples/output_expected` пересоздаются запуском инструмента на `examples/input` с теми же аргументами, что в `scripts/smoke_test.py`; путь к логу в эталонах записан как `<input>/<имя файла>`.
 
 ## Граница применимости
 
-Инструмент не восстанавливает всё, что было в исходной GUI-конфигурации. В коде и report это помечено как best-effort. Blob paths, часть base/header и некоторые детали могут быть восстановлены только через `--base-preset` или ручную правку.
+- Инструмент не восстанавливает всё, что было в исходной GUI-конфигурации: пути к blob-файлам, часть заголовка и некоторые детали возвращаются только через `--base-preset` или ручную правку.
+- Строка `profile … lua …` разбирается, только если вся строка оканчивается закрывающей скобкой и содержит `range_in=`, `range_out=`, `payload_type=`; шаг связывается со стратегией по параметру `strategy="N"`. Если формат лога другой, блоки получаются без `--lua-desync`, только с комментариями.
+- SUCCESS и FAIL от `slm_quality` учитываются только со счётчиком `N/M` в конце.
+- Фильтр `--filter-tcp`/`--filter-udp` выбирается по самому частому протоколу стратегии и ставится во все её блоки, даже если шаг взят из профиля другого протокола.
+- Лог с байтами не в UTF-8 обрывает работу с ошибкой; файлы при этом не создаются.
+- События и шаги профилей хранятся в памяти, сам лог — нет.

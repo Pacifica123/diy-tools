@@ -8,54 +8,57 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
+/// Версия внешнего контракта выходных файлов, см. docs/CONTRACT.md.
+const CONTRACT_VERSION: u32 = 1;
+
 #[derive(Parser, Debug)]
 #[command(name = "zapret-strategy-extractor")]
-#[command(about = "Extract successful/locked zapret 2 GUI orchestration strategies from huge logs")]
+#[command(about = "Извлекает LOCK/SUCCESS-стратегии zapret 2 GUI из больших orchestra-логов и собирает preset-кандидат")]
 struct Cli {
-    /// Path to the original orchestra_*.log file, not report.json.
+    /// Путь к исходному orchestra_*.log (не к report.json).
     log: PathBuf,
 
-    /// Output preset .txt file.
+    /// Куда записать preset-кандидат (.txt).
     #[arg(long, default_value = "locked_strategies_preset.txt")]
     preset_out: PathBuf,
 
-    /// Output JSON stats file.
+    /// Куда записать JSON со статистикой.
     #[arg(long, default_value = "strategy_stats.json")]
     stats_out: PathBuf,
 
-    /// Output TSV event list. Useful for manual audit.
+    /// Куда записать TSV со списком событий для ручной проверки.
     #[arg(long, default_value = "strategy_events.tsv")]
     events_out: PathBuf,
 
-    /// Existing preset/header file. If set, its content is copied before generated --new blocks.
+    /// Готовый preset или его заголовок: его содержимое копируется перед сгенерированными блоками --new.
     #[arg(long)]
     base_preset: Option<PathBuf>,
 
-    /// Only include strategies with at least this many LOCK/LOCKED events.
+    /// Брать только стратегии, у которых не меньше стольких событий LOCK/LOCKED.
     #[arg(long, default_value_t = 1)]
     min_locks: u64,
 
-    /// Include strategies with SUCCESS even if they were never LOCKED.
+    /// Брать и стратегии с SUCCESS, даже если они ни разу не были LOCKED.
     #[arg(long, default_value_t = false)]
     include_success_only: bool,
 
-    /// Maximum number of strategy blocks generated in preset.
+    /// Предел числа блоков стратегий в preset.
     #[arg(long, default_value_t = 100)]
     max_blocks: usize,
 
-    /// Default TCP filter for generated sections.
+    /// TCP-фильтр для сгенерированных секций.
     #[arg(long, default_value = "80,443")]
     tcp_filter: String,
 
-    /// Default UDP filter for generated sections.
+    /// UDP-фильтр для сгенерированных секций.
     #[arg(long, default_value = "443")]
     udp_filter: String,
 
-    /// If true, do not emit --hostlist-domains=... lines; keep targets only as comments.
+    /// Не писать строки --hostlist-domains=...; цели остаются только в комментариях.
     #[arg(long, default_value_t = false)]
     no_hostlist_domains: bool,
 
-    /// Progress every N lines. 0 disables progress.
+    /// Прогресс каждые N строк. 0 — отключить.
     #[arg(long, default_value_t = 1_000_000)]
     progress_lines: u64,
 }
@@ -109,6 +112,7 @@ struct ContextState {
 
 #[derive(Serialize)]
 struct Report {
+    contract_version: u32,
     source_log: String,
     total_lines: u64,
     profile_lua_steps: usize,
@@ -122,7 +126,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     let file = File::open(&cli.log)
-        .with_context(|| format!("failed to open log: {}", cli.log.display()))?;
+        .with_context(|| format!("не удалось открыть лог: {}", cli.log.display()))?;
     let reader = BufReader::with_capacity(1024 * 1024, file);
 
     let mut ctx = ContextState::default();
@@ -138,7 +142,7 @@ fn main() -> Result<()> {
 
         if cli.progress_lines > 0 && total_lines % cli.progress_lines == 0 {
             eprintln!(
-                "processed={} strategies={} profile_steps={} events={}",
+                "обработано строк: {}, стратегий: {}, шагов профилей: {}, событий: {}",
                 total_lines,
                 stats.len(),
                 profiles.values().map(|v| v.len()).sum::<usize>(),
@@ -182,7 +186,10 @@ fn main() -> Result<()> {
         "Generated --lua-desync lines are reconstructed from `profile N (noname) lua ...` definitions and LOCK/SUCCESS statistics.".to_string(),
     ];
 
+    let events_total = events.len();
+
     let report = Report {
+        contract_version: CONTRACT_VERSION,
         source_log: cli.log.display().to_string(),
         total_lines,
         profile_lua_steps: profiles.values().map(|v| v.len()).sum(),
@@ -193,15 +200,20 @@ fn main() -> Result<()> {
     };
 
     let stats_file = File::create(&cli.stats_out)
-        .with_context(|| format!("failed to create stats file: {}", cli.stats_out.display()))?;
+        .with_context(|| format!("не удалось создать файл статистики: {}", cli.stats_out.display()))?;
     let mut stats_writer = BufWriter::new(stats_file);
     serde_json::to_writer_pretty(&mut stats_writer, &report)?;
     stats_writer.write_all(b"\n")?;
 
-    eprintln!("preset written: {}", cli.preset_out.display());
-    eprintln!("stats written:  {}", cli.stats_out.display());
-    eprintln!("events written: {}", cli.events_out.display());
-    eprintln!("generated preset blocks: {}", generated_blocks);
+    println!("Готово.");
+    println!("Обработано строк: {}", total_lines);
+    println!("Найдено событий: {}", events_total);
+    println!("Создано блоков preset: {}", generated_blocks);
+    println!("Ошибок: 0");
+    println!("Результат (preset-кандидат, best-effort): {}", cli.preset_out.display());
+    println!("Отчёт (статистика): {}", cli.stats_out.display());
+    println!("Отчёт (события): {}", cli.events_out.display());
+    println!("Внимание: preset собран эвристически, проверьте его вручную перед применением.");
 
     Ok(())
 }
@@ -533,12 +545,12 @@ fn write_preset(
     profiles: &HashMap<u32, Vec<ProfileLuaStep>>,
 ) -> Result<usize> {
     let out = File::create(&cli.preset_out)
-        .with_context(|| format!("failed to create preset: {}", cli.preset_out.display()))?;
+        .with_context(|| format!("не удалось создать preset: {}", cli.preset_out.display()))?;
     let mut w = BufWriter::new(out);
 
     if let Some(base) = &cli.base_preset {
         let text = std::fs::read_to_string(base)
-            .with_context(|| format!("failed to read base preset: {}", base.display()))?;
+            .with_context(|| format!("не удалось прочитать базовый preset: {}", base.display()))?;
         w.write_all(text.as_bytes())?;
         if !text.ends_with('\n') {
             w.write_all(b"\n")?;
@@ -742,7 +754,7 @@ fn convert_out_range(range: &str) -> Option<String> {
 
 fn write_events_tsv(path: &PathBuf, events: &[StrategyEvent]) -> Result<()> {
     let out = File::create(path)
-        .with_context(|| format!("failed to create events file: {}", path.display()))?;
+        .with_context(|| format!("не удалось создать файл событий: {}", path.display()))?;
     let mut w = BufWriter::new(out);
     writeln!(w, "line\tevent\tstrategy\tprotocol\ttarget\tprofile_id\tdetails")?;
     for ev in events {

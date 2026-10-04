@@ -1,6 +1,6 @@
-# Vibe Coding Prompt Template — DIY Tool Standard v0.1-devctl
+# Vibe Coding Prompt Template — DIY Tool Standard v0.2-devctl
 
-Сделай DIY-инструмент по стандарту `DIY Tool Standard v0.1-devctl`.
+Сделай DIY-инструмент по стандарту `DIY Tool Standard v0.2-devctl`.
 
 Главное:
 
@@ -20,6 +20,8 @@
 - если инструмент интерактивный, включить `I`, autosave, undo/history/export;
 - если инструмент потоково читает большие файлы, включить `S`, progress и лимиты памяти;
 - сделать `README.md`, `tool.ini`, launcher-и, examples и минимальную проверку по выбранной зрелости;
+- для M3 — всё из §4.1 стандарта: `CHANGELOG.md`, `docs/CONTRACT.md` с версией контракта, `examples/input` + `examples/output_expected`, герметичный smoke, который сравнивает результат с эталоном и умеет падать, честный `tested_scope`;
+- не писать `tested` про то, что не запускалось: непроверенное называется прямо;
 - подготовить результат как devctl-патч: `manifest.json`, `files/`, `PATCH_SUMMARY.md`.
 
 Микропроблема:

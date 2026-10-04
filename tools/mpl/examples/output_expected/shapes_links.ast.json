@@ -1,0 +1,187 @@
+{
+  "contract_version": 1,
+  "kind": "graph",
+  "direction": "RL",
+  "nodes": [
+    {
+      "id": "Rect",
+      "label": "Прямоугольник",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Round",
+      "label": "Скруглённый",
+      "shape": "round",
+      "group": null
+    },
+    {
+      "id": "Circle",
+      "label": "Круг",
+      "shape": "circle",
+      "group": null
+    },
+    {
+      "id": "Diamond",
+      "label": "Ромб?",
+      "shape": "diamond",
+      "group": null
+    },
+    {
+      "id": "Sub",
+      "label": "Подпрограмма",
+      "shape": "subroutine",
+      "group": null
+    },
+    {
+      "id": "Cyl",
+      "label": "База",
+      "shape": "cylinder",
+      "group": null
+    },
+    {
+      "id": "Hex",
+      "label": "Шестиугольник",
+      "shape": "hex",
+      "group": null
+    },
+    {
+      "id": "Para",
+      "label": "Вход",
+      "shape": "parallelogram",
+      "group": null
+    },
+    {
+      "id": "ParaAlt",
+      "label": "Выход",
+      "shape": "parallelogram_alt",
+      "group": null
+    },
+    {
+      "id": "Long",
+      "label": "Очень длинная подпись узла, которая переносится на несколько строк\nи явный перенос",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Quoted",
+      "label": "Текст в кавычках --> не стрелка",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Bare",
+      "label": "Bare",
+      "shape": "rect",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "Rect",
+      "target": "Round",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Round",
+      "target": "Circle",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Circle",
+      "target": "Diamond",
+      "label": "",
+      "directed": false,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Diamond",
+      "target": "Sub",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "dotted"
+    },
+    {
+      "source": "Diamond",
+      "target": "Cyl",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "thick"
+    },
+    {
+      "source": "Sub",
+      "target": "Hex",
+      "label": "",
+      "directed": true,
+      "bidirectional": true,
+      "style": "normal"
+    },
+    {
+      "source": "Cyl",
+      "target": "Para",
+      "label": "пунктир",
+      "directed": true,
+      "bidirectional": false,
+      "style": "dotted"
+    },
+    {
+      "source": "Para",
+      "target": "ParaAlt",
+      "label": "жирная",
+      "directed": true,
+      "bidirectional": false,
+      "style": "thick"
+    },
+    {
+      "source": "ParaAlt",
+      "target": "Long",
+      "label": "с подписью",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Quoted",
+      "target": "Rect",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Bare",
+      "target": "Quoted",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Rect",
+      "target": "Diamond",
+      "label": "да",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Diamond",
+      "target": "Bare",
+      "label": "нет",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    }
+  ],
+  "groups": [],
+  "warnings": []
+}

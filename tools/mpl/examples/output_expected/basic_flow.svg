@@ -1,17 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="451" height="538" viewBox="0 0 451 538" role="img">
+<svg xmlns="http://www.w3.org/2000/svg" width="463" height="664" viewBox="0 0 463 664" role="img">
 <defs>
-<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#263238" /></marker>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" /></marker>
 </defs>
 <style><![CDATA[
-svg{background:#f8fafc;font-family:Arial,'DejaVu Sans',sans-serif}.group{fill:#eef2ff;stroke:#94a3b8;stroke-width:1.2;stroke-dasharray:6 5}.group-label{font-size:13px;fill:#334155;font-weight:600}.node{fill:#ffffff;stroke:#263238;stroke-width:1.4}.node-alt{fill:#f1f5f9}.edge{fill:none;stroke:#263238;stroke-width:1.4}.edge.thick{stroke-width:2.8}.edge.dotted{stroke-dasharray:5 5}.label-bg{fill:#f8fafc;stroke:#cbd5e1;stroke-width:.7}.text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}.edge-label{font-size:12px;fill:#1f2937;text-anchor:middle;dominant-baseline:middle}
+svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}.canvas{fill:#ffffff}.group{fill:#f5faff;fill-opacity:.72;stroke:#5d8fc2;stroke-width:1.35;stroke-dasharray:7 5}.group-label{font-size:13px;fill:#14324f;font-weight:600}.node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}.node-alt{fill:#fbfdff}.node-decision{fill:#fff7df;stroke:#1f2937;stroke-width:1.45}.edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:square;stroke-linejoin:miter}.edge.thick{stroke-width:2.75}.edge.dotted{stroke-dasharray:6 6}.label-bg{fill:#ffffff;stroke:#7c8da3;stroke-width:.9}.text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}.edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}
 ]]></style>
-<path class="edge normal" d="M 121.8 100.0 C 121.8 139.0, 131.8 139.0, 131.8 178.0" marker-end="url(#arrow)" />
-<path class="edge normal" d="M 131.8 256.0 C 131.8 282.0, 111.0 282.0, 111.0 308.0" marker-end="url(#arrow)" /><rect class="label-bg" x="104.4" y="264.0" width="34.0" height="20" rx="6" /><text class="edge-label" x="121.4" y="274.0">да</text>
-<path class="edge normal" d="M 131.8 256.0 C 131.8 282.0, 307.4 282.0, 307.4 308.0" marker-end="url(#arrow)" /><rect class="label-bg" x="200.1" y="264.0" width="39.0" height="20" rx="6" /><text class="edge-label" x="219.6" y="274.0">нет</text>
-<path class="edge normal" d="M 111.0 360.0 C 111.0 399.0, 136.2 399.0, 136.2 438.0" marker-end="url(#arrow)" />
-<rect class="node" x="48.0" y="48.0" width="147.6" height="52.0" rx="9" /><text class="text" x="121.8" y="74.0">Пишем Mermaid</text>
-<polygon class="node" points="131.8,178.0 215.6,217.0 131.8,256.0 48.0,217.0" /><text class="text" x="131.8" y="217.0">Парсер понял?</text>
-<rect class="node" x="48.0" y="308.0" width="126.0" height="52.0" rx="9" /><text class="text" x="111.0" y="334.0">Строим AST</text>
-<rect class="node" x="212.0" y="308.0" width="190.8" height="52.0" rx="9" /><text class="text" x="307.4" y="334.0">Показываем warnings</text>
-<rect class="node" x="48.0" y="438.0" width="176.4" height="52.0" rx="9" /><text class="text" x="136.2" y="464.0">Рисуем SVG-превью</text>
+<rect class="canvas" x="0" y="0" width="463" height="664" />
+<g class="groups">
+</g>
+<g class="edges">
+<path class="edge normal" d="M 133.1 114.0 L 133.1 165.0 L 147.1 165.0 L 147.1 216.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 135.1 298.0 L 135.1 348.0 L 122.0 348.0 L 122.0 398.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 159.1 298.0 L 159.1 348.0 L 307.3 348.0 L 307.3 398.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 122.0 448.0 L 122.0 499.0 L 147.9 499.0 L 147.9 550.0" marker-end="url(#arrow)" />
+</g>
+<g class="edge-labels">
+<rect class="label-bg" x="110.6" y="327.0" width="36.0" height="22" rx="7" /><text class="edge-label" x="128.6" y="338.0">да</text>
+<rect class="label-bg" x="212.7" y="327.0" width="41.0" height="22" rx="7" /><text class="edge-label" x="233.2" y="338.0">нет</text>
+</g>
+<g class="nodes">
+<rect class="node" x="64.0" y="64.0" width="138.2" height="50.0" rx="9" />
+<polygon class="node-decision" points="147.1,216.0 230.2,257.0 147.1,298.0 64.0,257.0" />
+<rect class="node" x="64.0" y="398.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="216.0" y="398.0" width="182.6" height="50.0" rx="9" />
+<rect class="node" x="64.0" y="550.0" width="167.8" height="50.0" rx="9" />
+</g>
+<g class="node-labels">
+<text class="text" x="133.1" y="89.0">Пишем Mermaid</text>
+<text class="text" x="147.1" y="257.0">Парсер понял?</text>
+<text class="text" x="122.0" y="423.0">Строим AST</text>
+<text class="text" x="307.3" y="423.0">Показываем warnings</text>
+<text class="text" x="147.9" y="575.0">Рисуем SVG-превью</text>
+</g>
 </svg>

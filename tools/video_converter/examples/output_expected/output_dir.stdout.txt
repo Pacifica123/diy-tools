@@ -1,0 +1,13 @@
+created: <INPUT>/already done.mkv -> <OUTPUT>/already done.mp4 | ok
+created: <INPUT>/clip one.mkv -> <OUTPUT>/clip one.mp4 | ok
+created: <INPUT>/вложенная папка/nested clip.mkv -> <OUTPUT>/вложенная папка/nested clip.mp4 | ok
+created: <INPUT>/тестовое видео.mkv -> <OUTPUT>/тестовое видео.mp4 | ok
+Готово.
+Найдено: 4
+Создано: 4
+Пропущено: 0
+Удалено оригиналов: 0
+Ошибок: 0
+Dry-run: нет
+Результат: <OUTPUT>
+Отчёт: <REPORT>

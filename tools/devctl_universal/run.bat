@@ -1,7 +1,7 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-python devctl.py %*
+rem Каталог не меняется: workspace ищется от папки, из которой запущена команда.
+python "%~dp0devctl.py" %*
 if errorlevel 1 (
   echo.
   echo Инструмент завершился с ошибкой. См. сообщение выше.

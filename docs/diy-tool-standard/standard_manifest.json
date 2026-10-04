@@ -1,8 +1,8 @@
 {
   "standardId": "diy-tool-standard",
-  "version": "0.1.1-devctl",
+  "version": "0.2.0-devctl",
   "createdAt": "2026-06-12T10:30:00Z",
-  "status": "first_applicable_standard",
+  "status": "applicable_standard",
   "difficulty": 7,
   "scope": [
     "python",
@@ -24,7 +24,11 @@
     "_templates/TOOLS.template.md",
     "_templates/VIBE_CODING_PROMPT.template.md",
     "_templates/PATCH_SUMMARY.template.md",
-    "_templates/ACCEPTANCE_CHECKLIST.md"
+    "_templates/ACCEPTANCE_CHECKLIST.md",
+    "_templates/CONTRACT.template.md",
+    "_templates/CHANGELOG.template.md",
+    "_templates/run.sh.template",
+    "_templates/run.bat.template"
   ],
   "maturityLevels": [
     "M0",
@@ -55,8 +59,34 @@
     "video_converter.py",
     "red_axis_gen1.zip"
   ],
-  "patch_id": "2026-06-12-diy-tool-standard-v0-1-1",
+  "patch_id": "2026-10-04-diy-shelf-m3",
   "notes": [
+    "v0.2 defines what M3 means on the shared shelf (STANDARD.md 4.1) and brings all nine capsules to M3.",
     "v0.1.1 fixes devctl machine-check anchors without changing methodology semantics."
-  ]
+  ],
+  "statuses": [
+    "draft",
+    "working",
+    "tested",
+    "stable",
+    "broken",
+    "deprecated"
+  ],
+  "m3ShelfRequirements": {
+    "files": [
+      "CHANGELOG.md",
+      "docs/CONTRACT.md",
+      "scripts/smoke_test.*",
+      "examples/input",
+      "examples/output_expected"
+    ],
+    "toolIniKeys": [
+      "tool.changelog",
+      "data.contract_doc",
+      "data.contract_version",
+      "checks.regression",
+      "checks.tested_scope"
+    ],
+    "checker": "scripts/check_tools_shelf.py"
+  }
 }

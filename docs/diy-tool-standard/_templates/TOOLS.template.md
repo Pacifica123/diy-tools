@@ -1,8 +1,8 @@
 # TOOLS.md — реестр DIY-инструментов
 
-| ID | Название | Категория | Зрелость | Флаги | Интерфейсы | Среды | Сеть | Опасность | Где лежит | Проверка |
-|---|---|---|---|---|---|---|---|---|---|---|
-| example_tool | Пример инструмента | misc | M1 | none | cli | Win expected / Linux expected | no | no | tools/example_tool | manual README example |
+| ID | Название | Версия | Статус | Категория | Зрелость | Флаги | Интерфейсы | Среды | Сеть | Опасность | Где лежит | Проверка |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| example_tool | Пример инструмента | 0.1.0 | draft | misc | M1 | none | cli | Win expected / Linux expected | no | no | tools/example_tool | manual README example |
 
 ## Легенда зрелости
 

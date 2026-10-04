@@ -1,0 +1,37 @@
+# Preset: Extracted locked strategies
+# TemplateOrigin: zapret-strategy-extractor
+# BuiltinVersion: unknown
+# IconColor: #a8c5ff
+
+--lua-init=@lua/zapret-lib.lua
+--lua-init=@lua/zapret-antidpi.lua
+--lua-init=@lua/zapret-auto.lua
+--lua-init=@lua/custom_funcs.lua
+--lua-init=@lua/custom_diag.lua
+--lua-init=@lua/zapret-multishake.lua
+
+--ctrack-disable=0
+--ipcache-lifetime=8400
+--ipcache-hostname=1
+
+--wf-tcp-out=80,443,500,853,1080,2053,2083,2087,2096,8443
+--wf-udp-out=80,443,500,50000-65535
+
+# Add blob lines manually or pass --base-preset to preserve them from an existing preset.
+# ============================================================
+# Generated locked/successful strategy blocks
+# Source log: <input>/sample_orchestra.log
+# WARNING: generated blocks are best-effort. Audit before use.
+# ============================================================
+
+--new
+# Strategy 12 was successful/locked, but no matching profile lua step was reconstructed.
+# Strategy 12: score=100 locks=1 locked_successes=0 successes=0 fails=0 overrides=0 auto_unlocks=0
+# Protocols: tcp=1
+# Targets: example.org=1
+
+--new
+# Strategy 13 was successful/locked, but no matching profile lua step was reconstructed.
+# Strategy 13: score=100 locks=1 locked_successes=0 successes=0 fails=0 overrides=0 auto_unlocks=0
+# Protocols: udp=1
+# Targets: video.example.net=1

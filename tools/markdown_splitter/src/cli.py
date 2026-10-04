@@ -7,6 +7,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+if sys.version_info < (3, 11):
+    sys.stderr.write("Ошибка: нужен Python 3.11 или новее.\n")
+    raise SystemExit(1)
+
+# Версия внешнего контракта (docs/CONTRACT.md). Несовместимое изменение формата
+# index.json, аргументов или кодов возврата = новая версия + запись в CHANGELOG.
+CONTRACT_VERSION = 1
+
 ATX_HEADING_RE = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*(?:\n)?$")
 SETEXT_RE = re.compile(r"^ {0,3}(=+|-+)[ \t]*(?:\n)?$")
 FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*?)(?:\n)?$")
@@ -326,6 +334,9 @@ def split_blocks(blocks: list[Block], max_bytes: int, source_title: str) -> tupl
     current_title = source_title
     current_context_added = False
     current_has_payload = False
+    current_has_body = False
+    tail_start: int | None = None
+    tail_title: str | None = None
     heading_stack: dict[int, Block] = {}
 
     def current_nearest_heading() -> Block | None:
@@ -341,37 +352,72 @@ def split_blocks(blocks: list[Block], max_bytes: int, source_title: str) -> tupl
         return synthetic, source_title, True
 
     def start_new(prefix: str = "", title: str | None = None, context_added: bool = False) -> None:
-        nonlocal current, current_size, current_title, current_context_added, current_has_payload
+        nonlocal current, current_size, current_title, current_context_added, current_has_payload, current_has_body
+        nonlocal tail_start, tail_title
         current = [prefix] if prefix else []
         current_size = len(prefix.encode("utf-8"))
         current_title = title or source_title
         current_context_added = context_added
         current_has_payload = False
+        current_has_body = False
+        tail_start = None
+        tail_title = None
 
-    def flush() -> None:
-        nonlocal current, current_size, current_has_payload
+    def tail_size() -> int | None:
+        # Размер «хвоста» — заголовков в конце части, после которых ещё нет текста.
+        # None, если хвоста нет или кроме него в части ничего содержательного нет.
+        if tail_start is None or not current_has_body:
+            return None
+        return len("".join(current[tail_start:]).encode("utf-8"))
+
+    def flush(carry_tail: bool = False) -> None:
+        nonlocal current, current_size, current_title, current_has_payload, tail_start, tail_title
+        tail: list[str] = []
+        carried_title = None
+        if carry_tail and tail_size() is not None:
+            # Заголовок не остаётся «висеть» в конце части без своего текста:
+            # он переезжает в начало следующей части вместе с содержимым секции.
+            tail = current[tail_start:]
+            carried_title = tail_title
+            del current[tail_start:]
         text = "".join(current).lstrip("\n")
-        if not text.strip():
+        if not text.strip() or (current_context_added and not current_has_payload):
+            # Пусто или только добавленный контекстный заголовок без содержимого.
             start_new()
-            return
-        size = len(text.encode("utf-8"))
-        chunks.append(Chunk(text=ensure_newline(text), title=current_title, context_heading_added=current_context_added, size_bytes=size, oversized=size > max_bytes))
-        if size > max_bytes:
-            warnings.append(f"часть {len(chunks)} имеет {size} байт > лимита {max_bytes}: внутри есть неделимый Markdown-блок")
-        start_new()
+        else:
+            text = ensure_newline(text)
+            size = len(text.encode("utf-8"))
+            chunks.append(Chunk(text=text, title=current_title, context_heading_added=current_context_added, size_bytes=size, oversized=size > max_bytes))
+            if size > max_bytes:
+                warnings.append(f"часть {len(chunks)} имеет {size} байт > лимита {max_bytes}: внутри есть неделимый Markdown-блок")
+            start_new()
+        if tail:
+            current = tail
+            current_size = len("".join(tail).encode("utf-8"))
+            current_title = carried_title or source_title
+            current_has_payload = True
+            tail_start = 0
+            tail_title = carried_title
 
     start_new(first_frontmatter)
 
     for block in blocks:
         if block.kind == "blank" and not current and not current_has_payload:
             continue
+        if block.kind == "blank" and current_has_payload and current_size + block.size_bytes > max_bytes:
+            # Пустые строки, не поместившиеся в часть, просто завершают её:
+            # иначе следующая часть начиналась бы с «висящего» повторного заголовка.
+            flush(carry_tail=True)
+            if not current:
+                continue
 
         # A real heading is the best natural boundary. Flush before it if the
         # existing chunk already has payload and adding heading+future text would
         # otherwise make the next chunk harder to read.
         if block.kind == "heading":
             if current_has_payload and current_size + block.size_bytes > max_bytes:
-                flush()
+                pending = tail_size()
+                flush(carry_tail=pending is not None and pending + block.size_bytes <= max_bytes)
             level = block.heading_level or 1
             heading_stack[level] = block
             for deeper in [lvl for lvl in heading_stack if lvl > level]:
@@ -381,13 +427,21 @@ def split_blocks(blocks: list[Block], max_bytes: int, source_title: str) -> tupl
                 current_context_added = False
 
         candidate_size = current_size + block.size_bytes
-        if candidate_size > max_bytes and current_has_payload:
-            flush()
-            if block.kind != "heading":
-                prefix, title, added = context_prefix()
+        if candidate_size > max_bytes and current_has_payload and block.kind not in {"heading", "blank"}:
+            prefix, title, added = context_prefix()
+            prefix_size = len(prefix.encode("utf-8"))
+            pending = tail_size()
+            if pending is not None and (pending + block.size_bytes <= max_bytes or prefix_size + block.size_bytes > max_bytes):
+                # Секция только что началась: её заголовок уходит в новую часть
+                # вместе с блоком, повторять контекст не нужно.
+                flush(carry_tail=True)
+            elif current_has_body or prefix_size + block.size_bytes <= max_bytes:
+                # Часть из одних заголовков не закрывается ради блока, который всё равно
+                # не поместится: заголовок остаётся вместе со своим неделимым блоком.
+                flush()
                 start_new(prefix, title, added)
 
-        if block.kind != "heading" and not current_has_payload and not heading_stack:
+        if block.kind not in {"heading", "blank"} and not current_has_payload and not heading_stack and not current_context_added:
             # For the first chunk, put the generated title *after* YAML front matter.
             # Front matter must remain byte-position zero to retain its semantics.
             synthetic = f"# {source_title}\n\n"
@@ -402,12 +456,21 @@ def split_blocks(blocks: list[Block], max_bytes: int, source_title: str) -> tupl
         # Never create a useless heading-only chunk for one protected block.
         # If prefix/heading + one atomic block itself exceeds the limit, keep the
         # block intact and mark the resulting chunk as oversized.
+        if block.kind == "heading":
+            if not current_context_added and not current_has_payload:
+                # Часть называется по своему первому заголовку.
+                current_title = block.heading_title or source_title
+            if tail_start is None:
+                tail_start = len(current)
+                tail_title = block.heading_title or source_title
         current.append(block.text)
         current_size += block.size_bytes
         if block.kind != "blank":
             current_has_payload = True
-        if block.kind == "heading" and not current_context_added:
-            current_title = block.heading_title or source_title
+            if block.kind != "heading":
+                current_has_body = True
+                tail_start = None
+                tail_title = None
 
     flush()
     return chunks, warnings
@@ -416,6 +479,8 @@ def split_blocks(blocks: list[Block], max_bytes: int, source_title: str) -> tupl
 def choose_output_dir(source: Path, requested: Path | None) -> Path:
     if requested is not None:
         path = requested
+        if path.exists() and not path.is_dir():
+            raise SplitError(f"выходной путь существует и не является папкой: {path}")
         if path.exists() and any(path.iterdir()):
             raise SplitError(f"выходная папка не пуста: {path}")
         return path
@@ -469,28 +534,35 @@ def write_chunks(source: Path, output_dir: Path, chunks: list[Chunk], warnings: 
         )
 
     report = {
+        "contract_version": CONTRACT_VERSION,
         "formatVersion": 1,
         "source": source.name,
         "maxBytes": max_bytes,
         "parts": entries,
         "warnings": warnings,
     }
-    (output_dir / "index.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (output_dir / "index.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
     return report
 
 
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        prog="markdown_splitter",
+        add_help=False,
         description=(
             "Нарезает UTF-8 Markdown на самостоятельные части, не разрывая fenced code blocks, "
             "таблицы, blockquote и отдельные пункты списков. Продолжения получают контекстный заголовок."
-        )
+        ),
+        epilog="Коды возврата: 0 — успех, 1 — ошибка обработки, 2 — неверные аргументы. Контракт: docs/CONTRACT.md.",
     )
-    parser.add_argument("source", type=Path, help="исходный .md файл")
-    parser.add_argument("--max-size", type=parse_size, default=parse_size("1M"), help="мягкий максимум части: 500K, 1M, 1.5M или байты (по умолчанию 1M)")
-    parser.add_argument("--output-dir", type=Path, default=None, help="выходная папка; должна отсутствовать или быть пустой")
-    parser.add_argument("--dry-run", action="store_true", help="ничего не записывать, только показать план")
-    parser.add_argument("--json", action="store_true", help="печатать итоговый отчёт JSON в stdout")
+    positional = parser.add_argument_group("Аргументы")
+    positional.add_argument("source", type=Path, help="исходный .md файл")
+    options = parser.add_argument_group("Параметры")
+    options.add_argument("-h", "--help", action="help", help="показать эту справку и выйти")
+    options.add_argument("--max-size", type=parse_size, default=parse_size("1M"), help="мягкий максимум части: 500K, 1M, 1.5M или байты (по умолчанию 1M)")
+    options.add_argument("--output-dir", type=Path, default=None, help="выходная папка; должна отсутствовать или быть пустой")
+    options.add_argument("--dry-run", action="store_true", help="ничего не записывать, только показать план")
+    options.add_argument("--json", action="store_true", help="печатать итоговый отчёт JSON в stdout")
     return parser
 
 
@@ -510,6 +582,7 @@ def main(argv: list[str] | None = None) -> int:
         output_dir = choose_output_dir(source, args.output_dir)
         if args.dry_run:
             report = {
+                "contract_version": CONTRACT_VERSION,
                 "formatVersion": 1,
                 "source": source.name,
                 "maxBytes": args.max_size,
@@ -534,19 +607,36 @@ def main(argv: list[str] | None = None) -> int:
     except SplitError as exc:
         print(f"Ошибка: {exc}", file=sys.stderr)
         return 1
+    except OSError as exc:
+        print(f"Ошибка: не удалось прочитать или записать файлы: {exc}", file=sys.stderr)
+        return 1
 
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
-        action = "Будет создано" if args.dry_run else "Создано"
-        print(f"{action} частей: {len(report['parts'])}")
-        print(f"Папка: {report['outputDir']}")
         for part in report["parts"]:
             marker = " [выше лимита]" if part["oversized"] else ""
             filename = part.get("file", f"часть {part['index']}")
             print(f"  {part['index']:03d}: {filename} — {part['sizeBytes']} байт{marker}")
         for warning in warnings:
             print(f"Предупреждение: {warning}", file=sys.stderr)
+        count = len(report["parts"])
+        if args.dry_run:
+            print("Готово (пробный запуск, ничего не записано).")
+            print("Обработано: 1")
+            print(f"Будет создано: {count}")
+            print(f"Предупреждений: {len(warnings)}")
+            print("Ошибок: 0")
+            print(f"Результат: {report['outputDir']} (не создавался)")
+            print("Отчёт: нет (index.json пишется только при настоящем запуске)")
+        else:
+            print("Готово.")
+            print("Обработано: 1")
+            print(f"Создано: {count}")
+            print(f"Предупреждений: {len(warnings)}")
+            print("Ошибок: 0")
+            print(f"Результат: {report['outputDir']}")
+            print(f"Отчёт: {Path(report['outputDir']) / 'index.json'}")
     return 0
 
 

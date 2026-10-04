@@ -1,0 +1,109 @@
+{
+  "contract_version": 1,
+  "kind": "flowchart",
+  "direction": "TD",
+  "nodes": [
+    {
+      "id": "A",
+      "label": "Внешний старт",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "B",
+      "label": "Внешняя середина",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "G1",
+      "label": "Шаг один",
+      "shape": "rect",
+      "group": "G"
+    },
+    {
+      "id": "G2",
+      "label": "Шаг два",
+      "shape": "rect",
+      "group": "G"
+    },
+    {
+      "id": "G3",
+      "label": "Шаг три",
+      "shape": "rect",
+      "group": "G"
+    },
+    {
+      "id": "C",
+      "label": "Внешний финиш",
+      "shape": "rect",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "A",
+      "target": "B",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "G1",
+      "target": "G2",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "G2",
+      "target": "G3",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "G3",
+      "target": "G1",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "B",
+      "target": "G",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "G",
+      "target": "C",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "C",
+      "target": "A",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    }
+  ],
+  "groups": [
+    {
+      "id": "G",
+      "label": "Группа обработки",
+      "parent": null
+    }
+  ],
+  "warnings": []
+}

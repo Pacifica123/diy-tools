@@ -1,0 +1,3 @@
+line	event	strategy	protocol	target	profile_id	details
+4	lock	12	tcp	example.org		rtt=110
+9	lock	13	udp	video.example.net		rtt=90

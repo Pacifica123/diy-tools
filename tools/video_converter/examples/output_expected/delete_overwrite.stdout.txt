@@ -1,0 +1,13 @@
+created: <INPUT>/already done.mkv -> <INPUT>/already done.mp4 | ok
+error: <INPUT>/clip one.mkv -> <INPUT>/clip one.mp4 | ffmpeg завершился с кодом 1: stub: forced failure
+error: <INPUT>/вложенная папка/nested clip.mkv -> <INPUT>/вложенная папка/nested clip.mp4 | ffmpeg завершился без ошибки, но выходной файл не создан или пуст
+created: <INPUT>/тестовое видео.mkv -> <INPUT>/тестовое видео.mp4 | ok
+Готово.
+Найдено: 4
+Создано: 2
+Пропущено: 0
+Удалено оригиналов: 2
+Ошибок: 2
+Dry-run: нет
+Результат: рядом с исходными файлами в <INPUT>
+Отчёт: <REPORT>

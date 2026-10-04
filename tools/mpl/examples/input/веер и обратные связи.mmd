@@ -1,0 +1,16 @@
+%% Регрессия: широкий веер (перенос слоя), подписи рёбер и обратные связи.
+flowchart TD
+    Shelf[Полка инструментов] --> Readme[README.md]
+    Shelf --> ToolIni[tool.ini]
+    Shelf --> RunBat[run.bat]
+    Shelf --> RunSh[run.sh]
+    Shelf --> Src[Исходники src]
+    Shelf --> Examples[Примеры входа и выхода]
+    Shelf --> Docs[Документы контракта]
+    Shelf --> Scripts[Скрипты проверки]
+    Shelf --> Changelog[История изменений]
+    Scripts -- запускает --> Check{Smoke прошёл?}
+    Examples -->|эталоны| Check
+    Check -- да --> Done((Готово))
+    Check -- нет, чинить --> Src
+    Done -.->|следующая версия| Shelf

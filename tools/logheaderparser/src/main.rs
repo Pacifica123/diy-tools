@@ -11,9 +11,12 @@ use std::time::Instant;
 
 const ANY: &str = "<*>";
 
+/// Версия внешнего контракта JSON-отчёта, см. docs/CONTRACT.md.
+const CONTRACT_VERSION: u32 = 1;
+
 #[derive(Parser, Debug)]
 #[command(name = "log-miner")]
-#[command(about = "Streaming log template miner for huge unknown log files")]
+#[command(about = "Потоковый поиск повторяющихся шаблонов строк в больших логах")]
 struct Cli {
     /// Путь к лог-файлу
     path: PathBuf,
@@ -65,6 +68,7 @@ struct ReportPattern {
 
 #[derive(Serialize)]
 struct Report {
+    contract_version: u32,
     file: String,
     total_lines: u64,
     total_bytes: u64,
@@ -419,15 +423,15 @@ fn main() -> Result<()> {
     let started = Instant::now();
 
     if !(0.0..=1.0).contains(&cli.threshold) {
-        anyhow::bail!("--threshold must be between 0.0 and 1.0");
+        anyhow::bail!("--threshold должен быть в диапазоне от 0.0 до 1.0");
     }
 
     if cli.max_patterns == 0 {
-        anyhow::bail!("--max-patterns must be greater than zero");
+        anyhow::bail!("--max-patterns должен быть больше нуля");
     }
 
     let file = File::open(&cli.path)
-        .with_context(|| format!("failed to open {}", cli.path.display()))?;
+        .with_context(|| format!("не удалось открыть лог: {}", cli.path.display()))?;
 
     let mut reader = BufReader::with_capacity(1024 * 1024, file);
     let mut buf = Vec::with_capacity(16 * 1024);
@@ -458,7 +462,7 @@ fn main() -> Result<()> {
 
         if cli.progress_lines > 0 && total_lines % cli.progress_lines == 0 {
             eprintln!(
-                "processed={} patterns={} elapsed={:.1}s",
+                "обработано строк: {}, шаблонов: {}, прошло: {:.1} с",
                 total_lines,
                 miner.patterns.len(),
                 started.elapsed().as_secs_f32()
@@ -468,12 +472,14 @@ fn main() -> Result<()> {
 
     let patterns = miner.into_report_patterns();
 
-    println!("file: {}", cli.path.display());
-    println!("lines: {total_lines}");
-    println!("bytes: {total_bytes}");
-    println!("patterns: {}", patterns.len());
+    println!("Готово.");
+    println!("Файл: {}", cli.path.display());
+    println!("Обработано строк: {total_lines}");
+    println!("Обработано байт: {total_bytes}");
+    println!("Найдено шаблонов: {}", patterns.len());
+    println!("Ошибок: 0");
     println!();
-    println!("Top {} patterns:", cli.top.min(patterns.len()));
+    println!("Самые частые шаблоны ({}):", cli.top.min(patterns.len()));
 
     for p in patterns.iter().take(cli.top) {
         println!(
@@ -484,7 +490,7 @@ fn main() -> Result<()> {
         println!("  {}", p.template);
 
         if let Some(example) = p.examples.first() {
-            println!("  example: {}", example);
+            println!("  пример: {}", example);
         }
 
         println!();
@@ -492,6 +498,7 @@ fn main() -> Result<()> {
 
     if let Some(json_path) = cli.json {
         let report = Report {
+            contract_version: CONTRACT_VERSION,
             file: cli.path.display().to_string(),
             total_lines,
             total_bytes,
@@ -500,13 +507,13 @@ fn main() -> Result<()> {
         };
 
         let out = File::create(&json_path)
-            .with_context(|| format!("failed to create {}", json_path.display()))?;
+            .with_context(|| format!("не удалось создать отчёт: {}", json_path.display()))?;
 
         let mut writer = BufWriter::new(out);
         serde_json::to_writer_pretty(&mut writer, &report)?;
         writer.write_all(b"\n")?;
 
-        eprintln!("json report written to {}", json_path.display());
+        println!("Отчёт: {}", json_path.display());
     }
 
     Ok(())

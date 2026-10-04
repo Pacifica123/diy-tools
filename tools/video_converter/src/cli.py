@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
+
+# Версия внешнего контракта (CLI + JSON-отчёт), см. docs/CONTRACT.md.
+CONTRACT_VERSION = 1
 
 
 @dataclass
@@ -22,6 +26,7 @@ class FileResult:
 @dataclass
 class Summary:
     found: int = 0
+    planned: int = 0
     created: int = 0
     skipped: int = 0
     deleted: int = 0
@@ -55,45 +60,81 @@ def build_ffmpeg_command(ffmpeg: str, source: Path, output: Path, overwrite: boo
     ]
 
 
+def partial_path_for(output: Path) -> Path:
+    # ffmpeg пишет во временный файл рядом с результатом; расширение .mp4 нужно ffmpeg для выбора формата.
+    return output.with_name(output.stem + ".vc-partial.mp4")
+
+
 def convert_one(ffmpeg: str, source: Path, output: Path, *, overwrite: bool, dry_run: bool, delete_originals: bool) -> FileResult:
     if output.exists() and not overwrite:
-        return FileResult(str(source), str(output), "skipped", "output already exists; use --overwrite")
+        return FileResult(str(source), str(output), "skipped", "выходной файл уже существует; для перезаписи укажите --overwrite")
 
     if dry_run:
         return FileResult(str(source), str(output), "planned", "dry-run")
 
-    output.parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_ffmpeg_command(ffmpeg, source, output, overwrite)
-    completed = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    if completed.returncode != 0:
-        message = (completed.stderr or completed.stdout or "ffmpeg failed").strip().splitlines()[-1:]
-        return FileResult(str(source), str(output), "error", message[0] if message else "ffmpeg failed")
+    # Конвертация идёт во временный файл и только после успеха заменяет результат:
+    # при ошибке ffmpeg не остаётся битого .mp4, а существующий .mp4 не портится даже с --overwrite.
+    partial = partial_path_for(output)
+    try:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        cmd = build_ffmpeg_command(ffmpeg, source, partial, True)
+        completed = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if completed.returncode != 0:
+            lines = (completed.stderr or completed.stdout or "").strip().splitlines()
+            detail = lines[-1].strip() if lines else "подробностей нет"
+            return FileResult(str(source), str(output), "error", f"ffmpeg завершился с кодом {completed.returncode}: {detail}")
+        if not partial.is_file() or partial.stat().st_size == 0:
+            return FileResult(str(source), str(output), "error", "ffmpeg завершился без ошибки, но выходной файл не создан или пуст")
+        os.replace(partial, output)
+    except OSError as exc:
+        return FileResult(str(source), str(output), "error", f"{type(exc).__name__}: {exc}")
+    finally:
+        try:
+            partial.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     deleted = False
+    message = "ok"
     if delete_originals:
-        source.unlink()
-        deleted = True
+        try:
+            source.unlink()
+            deleted = True
+        except OSError as exc:
+            message = f"mp4 создан, но оригинал не удалён: {type(exc).__name__}: {exc}"
 
-    return FileResult(str(source), str(output), "created", "ok", deleted_original=deleted)
+    return FileResult(str(source), str(output), "created", message, deleted_original=deleted)
 
 
 def write_report(path: Path, summary: Summary, results: list[FileResult]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
+        "contract_version": CONTRACT_VERSION,
         "summary": asdict(summary),
         "results": [asdict(r) for r in results],
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    # errors="replace": имя файла в не-UTF-8 кодировке не должно ронять запись отчёта после уже сделанной работы.
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", errors="replace")
 
 
-def print_summary(summary: Summary, report: Path | None) -> None:
+def print_summary(summary: Summary, report: Path | None, result_location: str) -> None:
     print("Готово.")
     print(f"Найдено: {summary.found}")
+    if summary.dry_run:
+        print(f"Запланировано: {summary.planned}")
     print(f"Создано: {summary.created}")
     print(f"Пропущено: {summary.skipped}")
     print(f"Удалено оригиналов: {summary.deleted}")
     print(f"Ошибок: {summary.errors}")
     print(f"Dry-run: {'да' if summary.dry_run else 'нет'}")
+    print(f"Результат: {result_location}")
     if report:
         print(f"Отчёт: {report}")
 
@@ -133,8 +174,16 @@ def main(argv: list[str] | None = None) -> int:
     if not files:
         print("Нет файлов .mkv для конвертации в указанной папке.")
 
+    output_dir = args.output_dir.expanduser().resolve() if args.output_dir else None
+    report_path = args.report.expanduser().resolve() if args.report else None
+    if args.delete_originals and not args.dry_run and report_path is None:
+        print(
+            "Внимание: --delete-originals без --report: список удалённых оригиналов останется только в выводе ниже.",
+            file=sys.stderr,
+        )
+
     for source in files:
-        output = output_path_for(source, directory, args.output_dir.expanduser().resolve() if args.output_dir else None)
+        output = output_path_for(source, directory, output_dir)
         result = convert_one(
             ffmpeg_path,
             source,
@@ -144,8 +193,10 @@ def main(argv: list[str] | None = None) -> int:
             delete_originals=args.delete_originals,
         )
         results.append(result)
-        if result.status in {"created", "planned"}:
-            summary.created += 0 if result.status == "planned" else 1
+        if result.status == "created":
+            summary.created += 1
+        elif result.status == "planned":
+            summary.planned += 1
         elif result.status == "skipped":
             summary.skipped += 1
         elif result.status == "error":
@@ -154,11 +205,21 @@ def main(argv: list[str] | None = None) -> int:
             summary.deleted += 1
         print(f"{result.status}: {source} -> {output}{(' | ' + result.message) if result.message else ''}")
 
-    if args.report:
-        write_report(args.report.expanduser().resolve(), summary, results)
-    print_summary(summary, args.report.expanduser().resolve() if args.report else None)
+    if report_path:
+        write_report(report_path, summary, results)
+    if args.dry_run:
+        result_location = "файлы не создавались (dry-run)"
+    elif output_dir is not None:
+        result_location = str(output_dir)
+    else:
+        result_location = f"рядом с исходными файлами в {directory}"
+    print_summary(summary, report_path, result_location)
     return 1 if summary.errors else 0
 
 
 if __name__ == "__main__":
+    # Консоль с неподходящей кодировкой не должна обрывать пакет посреди работы из-за имени файла.
+    for _stream in (sys.stdout, sys.stderr):
+        if hasattr(_stream, "reconfigure"):
+            _stream.reconfigure(errors="replace")
     raise SystemExit(main())

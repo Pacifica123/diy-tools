@@ -1,0 +1,606 @@
+{
+  "contract_version": 1,
+  "kind": "anime_rerank_tournament.save",
+  "items": [
+    {
+      "id": 1,
+      "source_index": 1,
+      "title": "Клинок, рассекающий демонов",
+      "old_score": 9,
+      "episodes": "26/26",
+      "type": "Сериал",
+      "comment": null,
+      "wins": 1,
+      "losses": 0,
+      "bye_count": 0,
+      "eliminated_round": null,
+      "lost_to_id": null,
+      "new_score": null
+    },
+    {
+      "id": 2,
+      "source_index": 2,
+      "title": "Клинок, рассекающий демонов",
+      "old_score": 7,
+      "episodes": "11/11",
+      "type": "Сериал",
+      "comment": null,
+      "wins": 0,
+      "losses": 0,
+      "bye_count": 1,
+      "eliminated_round": null,
+      "lost_to_id": null,
+      "new_score": null
+    },
+    {
+      "id": 3,
+      "source_index": 3,
+      "title": "91 Days",
+      "old_score": 8,
+      "episodes": "12/12",
+      "type": "Сериал",
+      "comment": null,
+      "wins": 0,
+      "losses": 1,
+      "bye_count": 0,
+      "eliminated_round": 1,
+      "lost_to_id": 1,
+      "new_score": null
+    },
+    {
+      "id": 4,
+      "source_index": 4,
+      "title": "86",
+      "old_score": 8.5,
+      "episodes": "23/23",
+      "type": "Сериал",
+      "comment": null,
+      "wins": 0,
+      "losses": 0,
+      "bye_count": 0,
+      "eliminated_round": null,
+      "lost_to_id": null,
+      "new_score": null
+    },
+    {
+      "id": 5,
+      "source_index": 5,
+      "title": "Ёжик в тумане: «Ещё раз»",
+      "old_score": 7.5,
+      "episodes": "1/1",
+      "type": "Фильм",
+      "comment": "первая строка комментария\nвторая строка; с точкой с запятой и \"кавычками\"",
+      "wins": 0,
+      "losses": 0,
+      "bye_count": 0,
+      "eliminated_round": null,
+      "lost_to_id": null,
+      "new_score": null
+    },
+    {
+      "id": 6,
+      "source_index": 8,
+      "title": "Онгоинг с неизвестным числом серий",
+      "old_score": 6,
+      "episodes": "5/?",
+      "type": "ONA",
+      "comment": null,
+      "wins": 0,
+      "losses": 1,
+      "bye_count": 0,
+      "eliminated_round": 1,
+      "lost_to_id": 7,
+      "new_score": null
+    },
+    {
+      "id": 7,
+      "source_index": 9,
+      "title": "Запись   через пробелы вместо табуляции",
+      "old_score": 10,
+      "episodes": "1/1",
+      "type": "Спешл",
+      "comment": null,
+      "wins": 1,
+      "losses": 0,
+      "bye_count": 0,
+      "eliminated_round": null,
+      "lost_to_id": null,
+      "new_score": null
+    }
+  ],
+  "active_ids": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+  ],
+  "eliminated_ids": [
+    3,
+    6
+  ],
+  "round_winner_ids": [
+    2,
+    1,
+    7
+  ],
+  "round_number": 1,
+  "current_matches": [
+    {
+      "id": "1c7af455-0868-40e5-8374-12a326647add",
+      "round_number": 1,
+      "left_id": 2,
+      "right_id": null,
+      "winner_id": 2,
+      "loser_id": null,
+      "is_bye": true,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": "2026-10-04T19:19:52"
+    },
+    {
+      "id": "fa7d4c96-4a39-448d-a5e0-2ad1b6f932a2",
+      "round_number": 1,
+      "left_id": 3,
+      "right_id": 1,
+      "winner_id": 1,
+      "loser_id": 3,
+      "is_bye": false,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": "2026-10-04T19:19:52"
+    },
+    {
+      "id": "513f7022-48e6-45d1-837e-65eb2cd6af20",
+      "round_number": 1,
+      "left_id": 7,
+      "right_id": 6,
+      "winner_id": 7,
+      "loser_id": 6,
+      "is_bye": false,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": "2026-10-04T19:19:52"
+    },
+    {
+      "id": "eaabc5bb-0a6e-4b4e-8bd0-c08ba640ba91",
+      "round_number": 1,
+      "left_id": 5,
+      "right_id": 4,
+      "winner_id": null,
+      "loser_id": null,
+      "is_bye": false,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": null
+    }
+  ],
+  "completed_matches": [
+    {
+      "id": "1c7af455-0868-40e5-8374-12a326647add",
+      "round_number": 1,
+      "left_id": 2,
+      "right_id": null,
+      "winner_id": 2,
+      "loser_id": null,
+      "is_bye": true,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": "2026-10-04T19:19:52"
+    },
+    {
+      "id": "fa7d4c96-4a39-448d-a5e0-2ad1b6f932a2",
+      "round_number": 1,
+      "left_id": 3,
+      "right_id": 1,
+      "winner_id": 1,
+      "loser_id": 3,
+      "is_bye": false,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": "2026-10-04T19:19:52"
+    },
+    {
+      "id": "513f7022-48e6-45d1-837e-65eb2cd6af20",
+      "round_number": 1,
+      "left_id": 7,
+      "right_id": 6,
+      "winner_id": 7,
+      "loser_id": 6,
+      "is_bye": false,
+      "created_at": "2026-10-04T19:19:52",
+      "resolved_at": "2026-10-04T19:19:52"
+    }
+  ],
+  "random_seed": 314,
+  "mode": "hard",
+  "status": "in_progress",
+  "created_at": "2026-10-04T19:19:52",
+  "updated_at": "2026-10-04T19:19:52",
+  "undo_stack": [
+    {
+      "items": [
+        {
+          "id": 1,
+          "source_index": 1,
+          "title": "Клинок, рассекающий демонов",
+          "old_score": 9,
+          "episodes": "26/26",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 2,
+          "source_index": 2,
+          "title": "Клинок, рассекающий демонов",
+          "old_score": 7,
+          "episodes": "11/11",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 1,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 3,
+          "source_index": 3,
+          "title": "91 Days",
+          "old_score": 8,
+          "episodes": "12/12",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 4,
+          "source_index": 4,
+          "title": "86",
+          "old_score": 8.5,
+          "episodes": "23/23",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 5,
+          "source_index": 5,
+          "title": "Ёжик в тумане: «Ещё раз»",
+          "old_score": 7.5,
+          "episodes": "1/1",
+          "type": "Фильм",
+          "comment": "первая строка комментария\nвторая строка; с точкой с запятой и \"кавычками\"",
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 6,
+          "source_index": 8,
+          "title": "Онгоинг с неизвестным числом серий",
+          "old_score": 6,
+          "episodes": "5/?",
+          "type": "ONA",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 7,
+          "source_index": 9,
+          "title": "Запись   через пробелы вместо табуляции",
+          "old_score": 10,
+          "episodes": "1/1",
+          "type": "Спешл",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        }
+      ],
+      "active_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "eliminated_ids": [],
+      "round_winner_ids": [
+        2
+      ],
+      "round_number": 1,
+      "current_matches": [
+        {
+          "id": "1c7af455-0868-40e5-8374-12a326647add",
+          "round_number": 1,
+          "left_id": 2,
+          "right_id": null,
+          "winner_id": 2,
+          "loser_id": null,
+          "is_bye": true,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": "2026-10-04T19:19:52"
+        },
+        {
+          "id": "fa7d4c96-4a39-448d-a5e0-2ad1b6f932a2",
+          "round_number": 1,
+          "left_id": 3,
+          "right_id": 1,
+          "winner_id": null,
+          "loser_id": null,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": null
+        },
+        {
+          "id": "513f7022-48e6-45d1-837e-65eb2cd6af20",
+          "round_number": 1,
+          "left_id": 7,
+          "right_id": 6,
+          "winner_id": null,
+          "loser_id": null,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": null
+        },
+        {
+          "id": "eaabc5bb-0a6e-4b4e-8bd0-c08ba640ba91",
+          "round_number": 1,
+          "left_id": 5,
+          "right_id": 4,
+          "winner_id": null,
+          "loser_id": null,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": null
+        }
+      ],
+      "completed_matches": [
+        {
+          "id": "1c7af455-0868-40e5-8374-12a326647add",
+          "round_number": 1,
+          "left_id": 2,
+          "right_id": null,
+          "winner_id": 2,
+          "loser_id": null,
+          "is_bye": true,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": "2026-10-04T19:19:52"
+        }
+      ],
+      "random_seed": 314,
+      "mode": "hard",
+      "status": "in_progress",
+      "created_at": "2026-10-04T19:19:52",
+      "updated_at": "2026-10-04T19:19:52"
+    },
+    {
+      "items": [
+        {
+          "id": 1,
+          "source_index": 1,
+          "title": "Клинок, рассекающий демонов",
+          "old_score": 9,
+          "episodes": "26/26",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 1,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 2,
+          "source_index": 2,
+          "title": "Клинок, рассекающий демонов",
+          "old_score": 7,
+          "episodes": "11/11",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 1,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 3,
+          "source_index": 3,
+          "title": "91 Days",
+          "old_score": 8,
+          "episodes": "12/12",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 1,
+          "bye_count": 0,
+          "eliminated_round": 1,
+          "lost_to_id": 1,
+          "new_score": null
+        },
+        {
+          "id": 4,
+          "source_index": 4,
+          "title": "86",
+          "old_score": 8.5,
+          "episodes": "23/23",
+          "type": "Сериал",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 5,
+          "source_index": 5,
+          "title": "Ёжик в тумане: «Ещё раз»",
+          "old_score": 7.5,
+          "episodes": "1/1",
+          "type": "Фильм",
+          "comment": "первая строка комментария\nвторая строка; с точкой с запятой и \"кавычками\"",
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 6,
+          "source_index": 8,
+          "title": "Онгоинг с неизвестным числом серий",
+          "old_score": 6,
+          "episodes": "5/?",
+          "type": "ONA",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        },
+        {
+          "id": 7,
+          "source_index": 9,
+          "title": "Запись   через пробелы вместо табуляции",
+          "old_score": 10,
+          "episodes": "1/1",
+          "type": "Спешл",
+          "comment": null,
+          "wins": 0,
+          "losses": 0,
+          "bye_count": 0,
+          "eliminated_round": null,
+          "lost_to_id": null,
+          "new_score": null
+        }
+      ],
+      "active_ids": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "eliminated_ids": [
+        3
+      ],
+      "round_winner_ids": [
+        2,
+        1
+      ],
+      "round_number": 1,
+      "current_matches": [
+        {
+          "id": "1c7af455-0868-40e5-8374-12a326647add",
+          "round_number": 1,
+          "left_id": 2,
+          "right_id": null,
+          "winner_id": 2,
+          "loser_id": null,
+          "is_bye": true,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": "2026-10-04T19:19:52"
+        },
+        {
+          "id": "fa7d4c96-4a39-448d-a5e0-2ad1b6f932a2",
+          "round_number": 1,
+          "left_id": 3,
+          "right_id": 1,
+          "winner_id": 1,
+          "loser_id": 3,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": "2026-10-04T19:19:52"
+        },
+        {
+          "id": "513f7022-48e6-45d1-837e-65eb2cd6af20",
+          "round_number": 1,
+          "left_id": 7,
+          "right_id": 6,
+          "winner_id": null,
+          "loser_id": null,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": null
+        },
+        {
+          "id": "eaabc5bb-0a6e-4b4e-8bd0-c08ba640ba91",
+          "round_number": 1,
+          "left_id": 5,
+          "right_id": 4,
+          "winner_id": null,
+          "loser_id": null,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": null
+        }
+      ],
+      "completed_matches": [
+        {
+          "id": "1c7af455-0868-40e5-8374-12a326647add",
+          "round_number": 1,
+          "left_id": 2,
+          "right_id": null,
+          "winner_id": 2,
+          "loser_id": null,
+          "is_bye": true,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": "2026-10-04T19:19:52"
+        },
+        {
+          "id": "fa7d4c96-4a39-448d-a5e0-2ad1b6f932a2",
+          "round_number": 1,
+          "left_id": 3,
+          "right_id": 1,
+          "winner_id": 1,
+          "loser_id": 3,
+          "is_bye": false,
+          "created_at": "2026-10-04T19:19:52",
+          "resolved_at": "2026-10-04T19:19:52"
+        }
+      ],
+      "random_seed": 314,
+      "mode": "hard",
+      "status": "in_progress",
+      "created_at": "2026-10-04T19:19:52",
+      "updated_at": "2026-10-04T19:19:52"
+    }
+  ]
+}

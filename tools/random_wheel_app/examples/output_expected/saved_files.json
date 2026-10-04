@@ -1,0 +1,155 @@
+{
+  "session_v1.json": {
+    "loaded": {
+      "contract_version": 1,
+      "items": [
+        {
+          "id": 1,
+          "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+          "value": 10.0,
+          "source_line": 1
+        },
+        {
+          "id": 2,
+          "label": "весь день программирование (минимум 12 часов чисто разработки)",
+          "value": 20.0,
+          "source_line": 2
+        },
+        {
+          "id": 3,
+          "label": "день чтения",
+          "value": 5.0,
+          "source_line": 3
+        },
+        {
+          "id": 4,
+          "label": "день отдыха",
+          "value": 2.5,
+          "source_line": 4
+        }
+      ],
+      "active_ids": [
+        3,
+        4
+      ],
+      "options": {
+        "mode": "weighted",
+        "spin_duration_ms": 4500,
+        "min_turns": 5,
+        "max_turns": 9,
+        "remove_winner": true,
+        "random_seed": 42
+      },
+      "history": [
+        {
+          "item_id": 2,
+          "label": "весь день программирование (минимум 12 часов чисто разработки)",
+          "mode": "weighted",
+          "effective_weight": 20.0,
+          "total_weight": 37.5,
+          "probability": 0.5333333333333333,
+          "created_at": "<TIMESTAMP>"
+        },
+        {
+          "item_id": 1,
+          "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+          "mode": "weighted",
+          "effective_weight": 10.0,
+          "total_weight": 17.5,
+          "probability": 0.5714285714285714,
+          "created_at": "<TIMESTAMP>"
+        }
+      ],
+      "spin_count": 2,
+      "created_at": "<TIMESTAMP>"
+    },
+    "next_winners": [
+      "день чтения",
+      "день отдыха"
+    ]
+  },
+  "session_v0_legacy.json": {
+    "loaded": {
+      "contract_version": 1,
+      "items": [
+        {
+          "id": 1,
+          "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+          "value": 10.0,
+          "source_line": 1
+        },
+        {
+          "id": 2,
+          "label": "весь день программирование (минимум 12 часов чисто разработки)",
+          "value": 20.0,
+          "source_line": 2
+        },
+        {
+          "id": 3,
+          "label": "день чтения",
+          "value": 5.0,
+          "source_line": 3
+        },
+        {
+          "id": 4,
+          "label": "день отдыха",
+          "value": 2.5,
+          "source_line": 4
+        }
+      ],
+      "active_ids": [
+        3,
+        4
+      ],
+      "options": {
+        "mode": "weighted",
+        "spin_duration_ms": 4500,
+        "min_turns": 5,
+        "max_turns": 9,
+        "remove_winner": true,
+        "random_seed": 42
+      },
+      "history": [
+        {
+          "item_id": 2,
+          "label": "весь день программирование (минимум 12 часов чисто разработки)",
+          "mode": "weighted",
+          "effective_weight": 20.0,
+          "total_weight": 37.5,
+          "probability": 0.5333333333333333,
+          "created_at": "<TIMESTAMP>"
+        },
+        {
+          "item_id": 1,
+          "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+          "mode": "weighted",
+          "effective_weight": 10.0,
+          "total_weight": 17.5,
+          "probability": 0.5714285714285714,
+          "created_at": "<TIMESTAMP>"
+        }
+      ],
+      "spin_count": 2,
+      "created_at": "<TIMESTAMP>"
+    },
+    "next_winners": [
+      "день чтения",
+      "день отдыха"
+    ]
+  },
+  "load_errors": {
+    "save_broken_truncated.json": "Файл сохранения повреждён: это не корректный JSON (строка 7, столбец 1).",
+    "save_foreign.json": "Это не файл сохранения колеса или он повреждён: нет списка вариантов items.",
+    "save_newer_version.json": "Файл сохранения создан более новой версией инструмента: версия формата 2, эта версия понимает не выше 1. Обновите инструмент. Файл не изменён.",
+    "пустой файл.json": "Файл сохранения повреждён: файл пуст.",
+    "не текст.json": "Файл сохранения повреждён: это не текст в кодировке UTF-8.",
+    "корень список.json": "Это не файл сохранения колеса или он повреждён: в корне JSON ожидался объект.",
+    "число NaN.json": "Файл сохранения повреждён: недопустимое число NaN.",
+    "нет вариантов.json": "Это не файл сохранения колеса или он повреждён: нет списка вариантов items.",
+    "active_ids чужой.json": "Это не файл сохранения колеса или он повреждён: active_ids ссылается на неизвестный вариант 99.",
+    "режим неизвестен.json": "Это не файл сохранения колеса или он повреждён: неизвестный режим options.mode: 'turbo'.",
+    "версия строкой.json": "Это не файл сохранения колеса или он повреждён: поле contract_version должно быть целым неотрицательным числом.",
+    "история не список.json": "Это не файл сохранения колеса или он повреждён: нет списка history.",
+    "такого файла нет.json": "Файл сохранения не найден: <TMP>/такого файла нет.json"
+  }
+}

@@ -1,0 +1,36 @@
+nfqws2 orchestra debug log (синтетический пример, построен по шаблонам строк, которые разбирает инструмент)
+profile 3 (noname) lua circular_quality(fails="3",retrans="3" range_in=x0-x0 range_out=a0-d10 payload_type=all)
+profile 3 (noname) lua fake(blob="fake_default_tls",strategy="1",tcp_md5="" range_in=x0-x0 range_out=a0-d10 payload_type=tls_client_hello)
+profile 3 (noname) lua multisplit(pos="2,midsld",seqovl="1",strategy="2" range_in=x0-x0 range_out=a0-d10 payload_type=tls_client_hello)
+profile 5 (noname) lua fake(blob="fake_default_quic",repeats="6",strategy="1" range_in=x0-x0 range_out=a0-n4 payload_type=quic_initial)
+profile 5 (noname) lua udplen(increment="2",strategy="2" range_in=x0-x0 range_out=0-0 payload_type=all)
+desync profile 3 (noname) matches
+hostname: www.example.org
+host record key 'autostate.tls www.example.org'
+LUA: circular_quality: start from strategy 1
+LUA: slm_quality: LOCK [tls] www.example.org -> strat=1 (rtt=110ms tries=3)
+LUA: slm_quality: [tls] www.example.org strat=1 SUCCESS 3/3
+LUA: circular_quality: LOCKED on strategy 1 after 3 successes
+LUA: circular_quality: LOCKED strat 1 SUCCESS
+hostname: пример.рф
+host record key 'autostate.tls пример.рф'
+LUA: slm_quality: LOCK [tls] пример.рф -> strat=1 (rtt=95ms tries=3)
+LUA: slm_quality: [tls] пример.рф strat=1 SUCCESS 3/3
+hostname: video.example.net
+host record key 'autostate.tls video.example.net'
+LUA: circular_quality: current strategy 2
+LUA: slm_quality: LOCK [tls] video.example.net -> strat=2 (rtt=140ms tries=3)
+LUA: circular_quality: LOCKED strat 2 FAIL #1/3 for video.example.net
+LUA: circular_quality: FAILURE overrides previous SUCCESS for strat 2
+LUA: circular_quality: AUTO-UNLOCK strat=2 after 3 fails
+using cached desync profile 5 (noname)
+host record key 'autostate.quic 203.0.113.7'
+LUA: circular_quality: current strategy 1
+LUA: slm_quality: LOCK [quic] 203.0.113.7 -> strat=1 (rtt=60ms tries=2)
+LUA: slm_quality: [quic] 203.0.113.7 strat=1 SUCCESS 2/2
+LUA: slm_quality: [quic] 203.0.113.7 strat=1 FAIL 1/3
+LUA: slm_quality: [quic] cdn.example.com strat=2 SUCCESS 2/2
+desync profile 3 (noname) matches
+host record key 'autostate.tls api.example.org'
+LUA: circular_quality: LOCKED on strategy 9
+строка, которая не относится к стратегиям

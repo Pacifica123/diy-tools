@@ -1,0 +1,13 @@
+skipped: <INPUT>/already done.mkv -> <INPUT>/already done.mp4 | выходной файл уже существует; для перезаписи укажите --overwrite
+planned: <INPUT>/clip one.mkv -> <INPUT>/clip one.mp4 | dry-run
+planned: <INPUT>/тестовое видео.mkv -> <INPUT>/тестовое видео.mp4 | dry-run
+Готово.
+Найдено: 3
+Запланировано: 2
+Создано: 0
+Пропущено: 1
+Удалено оригиналов: 0
+Ошибок: 0
+Dry-run: да
+Результат: файлы не создавались (dry-run)
+Отчёт: <REPORT>

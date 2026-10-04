@@ -1,0 +1,195 @@
+{
+  "contract_version": 1,
+  "kind": "flowchart",
+  "direction": "TD",
+  "nodes": [
+    {
+      "id": "Shelf",
+      "label": "Полка инструментов",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Readme",
+      "label": "README.md",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "ToolIni",
+      "label": "tool.ini",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "RunBat",
+      "label": "run.bat",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "RunSh",
+      "label": "run.sh",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Src",
+      "label": "Исходники src",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Examples",
+      "label": "Примеры входа и выхода",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Docs",
+      "label": "Документы контракта",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Scripts",
+      "label": "Скрипты проверки",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Changelog",
+      "label": "История изменений",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Check",
+      "label": "Smoke прошёл?",
+      "shape": "diamond",
+      "group": null
+    },
+    {
+      "id": "Done",
+      "label": "Готово",
+      "shape": "circle",
+      "group": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "Shelf",
+      "target": "Readme",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "ToolIni",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "RunBat",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "RunSh",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "Src",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "Examples",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "Docs",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "Scripts",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Shelf",
+      "target": "Changelog",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Scripts",
+      "target": "Check",
+      "label": "запускает",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Examples",
+      "target": "Check",
+      "label": "эталоны",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Check",
+      "target": "Done",
+      "label": "да",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Check",
+      "target": "Src",
+      "label": "нет, чинить",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Done",
+      "target": "Shelf",
+      "label": "следующая версия",
+      "directed": true,
+      "bidirectional": false,
+      "style": "dotted"
+    }
+  ],
+  "groups": [],
+  "warnings": []
+}

@@ -1,0 +1,70 @@
+{
+  "contract_version": 1,
+  "profiles": [
+    {
+      "id": "work",
+      "name": "Работа — пример",
+      "description": "Все пять типов элементов. Пути ведут в examples/input/fixture через %STARTDECK_EXAMPLES%.",
+      "items": [
+        {
+          "id": "app-stub",
+          "name": "Программа с аргументами",
+          "type": "app",
+          "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin",
+          "args": ["--profile", "Рабочий стол", "a b; echo не-shell"],
+          "skipIfRunning": true,
+          "processName": "Заглушка.exe",
+          "delayMs": 250
+        },
+        {
+          "id": "folder",
+          "name": "Папка с пробелом и кириллицей",
+          "type": "folder",
+          "path": "%STARTDECK_EXAMPLES%/Рабочая папка"
+        },
+        {
+          "id": "file",
+          "name": "Файл через приложение по умолчанию",
+          "type": "file",
+          "path": "%STARTDECK_EXAMPLES%/Рабочая папка/заметки проекта.txt"
+        },
+        {
+          "id": "site",
+          "name": "Сайт",
+          "type": "url",
+          "url": "https://example.com/путь?q=1"
+        },
+        {
+          "id": "command-no-shell",
+          "name": "Команда без shell",
+          "type": "command",
+          "path": "startdeck-example-command",
+          "args": ["--flag", "значение с пробелом", "$(echo не-выполнится)"]
+        },
+        {
+          "id": "command-shell",
+          "name": "Команда с явным allowShell",
+          "type": "command",
+          "path": "startdeck-example-command",
+          "args": ["--flag"],
+          "allowShell": true
+        },
+        {
+          "id": "app-with-allowshell",
+          "name": "allowShell у программы игнорируется",
+          "type": "app",
+          "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin",
+          "allowShell": true
+        },
+        {
+          "id": "disabled",
+          "name": "Отключённый элемент",
+          "type": "app",
+          "path": "C:\\Path\\To\\Program.exe",
+          "enabled": false,
+          "delayMs": 5000
+        }
+      ]
+    }
+  ]
+}

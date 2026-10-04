@@ -1,0 +1,164 @@
+{
+  "contract_version": 1,
+  "mode": "dry-run",
+  "launched": 0,
+  "summary": {
+    "profiles": 1,
+    "items": 7,
+    "ready": 0,
+    "disabled": 1,
+    "problems": 6
+  },
+  "config": {
+    "contract_version": 1,
+    "profiles": [
+      {
+        "id": "problems",
+        "name": "Проблемные элементы",
+        "items": [
+          {
+            "id": "missing-file",
+            "name": "Несуществующий файл",
+            "type": "app",
+            "path": "%STARTDECK_EXAMPLES%/нет такой программы.exe"
+          },
+          {
+            "id": "no-path",
+            "name": "Путь не указан",
+            "type": "folder",
+            "path": ""
+          },
+          {
+            "id": "no-url",
+            "name": "URL не указан",
+            "type": "url"
+          },
+          {
+            "id": "unknown-type",
+            "name": "Неизвестный тип",
+            "type": "script",
+            "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin"
+          },
+          {
+            "id": "unset-variable",
+            "name": "Переменная окружения не задана",
+            "type": "file",
+            "path": "%STARTDECK_NO_SUCH_VARIABLE%/файл.txt"
+          },
+          "не объект",
+          {
+            "id": "disabled-broken",
+            "name": "Отключённый элемент не проверяется",
+            "type": "app",
+            "path": "",
+            "enabled": false
+          }
+        ]
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "id": "problems",
+      "name": "Проблемные элементы",
+      "items": [
+        {
+          "id": "missing-file",
+          "name": "Несуществующий файл",
+          "status": {
+            "id": "missing-file",
+            "ok": false,
+            "kind": "app",
+            "issue": "Не найдено: <EXAMPLES>/нет такой программы.exe",
+            "resolvedPath": "<EXAMPLES>/нет такой программы.exe"
+          },
+          "delayMs": 0,
+          "plan": null,
+          "error": "Файл или папка не найдены: <EXAMPLES>/нет такой программы.exe"
+        },
+        {
+          "id": "no-path",
+          "name": "Путь не указан",
+          "status": {
+            "id": "no-path",
+            "ok": false,
+            "kind": "folder",
+            "issue": "Не указан путь",
+            "resolvedPath": ""
+          },
+          "delayMs": 0,
+          "plan": null,
+          "error": "Не указан path"
+        },
+        {
+          "id": "no-url",
+          "name": "URL не указан",
+          "status": {
+            "id": "no-url",
+            "ok": false,
+            "kind": "url",
+            "issue": "Не указан URL",
+            "resolvedPath": ""
+          },
+          "delayMs": 0,
+          "plan": null,
+          "error": "Для URL нужен параметр url"
+        },
+        {
+          "id": "unknown-type",
+          "name": "Неизвестный тип",
+          "status": {
+            "id": "unknown-type",
+            "ok": false,
+            "kind": "unknown",
+            "issue": "Неизвестный тип элемента: script",
+            "resolvedPath": "<EXAMPLES>/программа заглушка.bin"
+          },
+          "delayMs": 0,
+          "plan": null,
+          "error": "Неизвестный тип элемента: script"
+        },
+        {
+          "id": "unset-variable",
+          "name": "Переменная окружения не задана",
+          "status": {
+            "id": "unset-variable",
+            "ok": false,
+            "kind": "file",
+            "issue": "Не найдено: %STARTDECK_NO_SUCH_VARIABLE%/файл.txt",
+            "resolvedPath": "%STARTDECK_NO_SUCH_VARIABLE%/файл.txt"
+          },
+          "delayMs": 0,
+          "plan": null,
+          "error": "Файл или папка не найдены: %STARTDECK_NO_SUCH_VARIABLE%/файл.txt"
+        },
+        {
+          "status": {
+            "ok": false,
+            "kind": "unknown",
+            "issue": "Некорректный элемент",
+            "resolvedPath": ""
+          },
+          "plan": null,
+          "error": "Некорректный элемент запуска"
+        },
+        {
+          "id": "disabled-broken",
+          "name": "Отключённый элемент не проверяется",
+          "status": {
+            "id": "disabled-broken",
+            "ok": true,
+            "kind": "disabled",
+            "issue": "Отключено",
+            "resolvedPath": ""
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "skip",
+            "reason": "disabled"
+          }
+        }
+      ]
+    }
+  ]
+}

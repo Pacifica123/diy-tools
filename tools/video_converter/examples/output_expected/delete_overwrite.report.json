@@ -1,0 +1,42 @@
+{
+  "contract_version": 1,
+  "summary": {
+    "found": 4,
+    "planned": 0,
+    "created": 2,
+    "skipped": 0,
+    "deleted": 2,
+    "errors": 2,
+    "dry_run": false
+  },
+  "results": [
+    {
+      "source": "<INPUT>/already done.mkv",
+      "output": "<INPUT>/already done.mp4",
+      "status": "created",
+      "message": "ok",
+      "deleted_original": true
+    },
+    {
+      "source": "<INPUT>/clip one.mkv",
+      "output": "<INPUT>/clip one.mp4",
+      "status": "error",
+      "message": "ffmpeg завершился с кодом 1: stub: forced failure",
+      "deleted_original": false
+    },
+    {
+      "source": "<INPUT>/вложенная папка/nested clip.mkv",
+      "output": "<INPUT>/вложенная папка/nested clip.mp4",
+      "status": "error",
+      "message": "ffmpeg завершился без ошибки, но выходной файл не создан или пуст",
+      "deleted_original": false
+    },
+    {
+      "source": "<INPUT>/тестовое видео.mkv",
+      "output": "<INPUT>/тестовое видео.mp4",
+      "status": "created",
+      "message": "ok",
+      "deleted_original": true
+    }
+  ]
+}

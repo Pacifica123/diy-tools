@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog, Menu, safeStorage } = requir
 const path = require('node:path');
 const fs = require('node:fs');
 const { spawn, execFile } = require('node:child_process');
+const core = require('./launch_core.cjs');
 
 const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
 const rootDir = app.getAppPath();
@@ -25,11 +26,7 @@ function getLegacyConfigPath() {
 }
 
 function getPossibleLegacyConfigPaths() {
-  return [
-    getLegacyConfigPath(),
-    path.join(app.getPath('appData'), 'App Launcher', 'apps.json'),
-    path.join(app.getPath('appData'), 'react-app-launcher', 'apps.json')
-  ];
+  return core.legacyConfigCandidates(app.getPath('userData'), app.getPath('appData'));
 }
 
 function createWindow() {
@@ -56,25 +53,15 @@ function createWindow() {
   }
 }
 
-function defaultConfig() {
-  return { profiles: [] };
-}
-
-function normalizeConfigShape(data) {
-  const normalized = Array.isArray(data) ? { profiles: data } : data;
-  if (!normalized || !Array.isArray(normalized.profiles)) {
-    throw new Error('Конфиг должен быть объектом вида: { \"profiles\": [] }');
-  }
-  return normalized;
-}
+const { defaultConfig, normalizeConfigShape, getTarget } = core;
 
 function encryptConfigPayload(data) {
-  const raw = JSON.stringify(normalizeConfigShape(data), null, 2);
+  const raw = core.serializeConfig(data);
   if (!isEncryptionAvailable()) return raw;
 
   const encryptedBuffer = safeStorage.encryptString(raw);
   return JSON.stringify({
-    format: 'startdeck.encrypted-config.v1',
+    format: core.ENCRYPTED_FORMAT,
     encrypted: true,
     payload: encryptedBuffer.toString('base64')
   }, null, 2);
@@ -144,79 +131,12 @@ function saveProfiles(profiles) {
   return profiles;
 }
 
-function expandEnv(value) {
-  if (typeof value !== 'string') return value;
-  return value
-    .replace(/^~(?=$|[\\/])/, process.env.USERPROFILE || process.env.HOME || '~')
-    .replace(/%([^%]+)%/g, (_, name) => process.env[name] || `%${name}%`);
-}
-
-function normalizeArgs(args) {
-  if (!args) return [];
-  if (Array.isArray(args)) return args.map(String).filter(Boolean);
-  if (typeof args === 'string') {
-    return args
-      .split('\n')
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
-
-function getTarget(item) {
-  if (!item || typeof item !== 'object') return '';
-  return expandEnv(item.path || '');
-}
-
-function getItemStatus(item) {
-  if (!item || typeof item !== 'object') {
-    return { ok: false, kind: 'unknown', issue: 'Некорректный элемент' };
-  }
-  if (item.enabled === false) {
-    return { ok: true, kind: 'disabled', issue: 'Отключено' };
-  }
-  if (item.type === 'url') {
-    return item.url
-      ? { ok: true, kind: 'url', issue: '' }
-      : { ok: false, kind: 'url', issue: 'Не указан URL' };
-  }
-
-  const target = getTarget(item);
-  if (!target) return { ok: false, kind: item.type || 'app', issue: 'Не указан путь' };
-  if (item.type === 'command') return { ok: true, kind: 'command', issue: '' };
-  if (!fs.existsSync(target)) {
-    return { ok: false, kind: item.type || 'app', issue: `Не найдено: ${target}` };
-  }
-  const stat = fs.statSync(target);
-  return {
-    ok: true,
-    kind: stat.isDirectory() ? 'folder' : item.type || 'app',
-    issue: '',
-    resolvedPath: target
-  };
-}
-
 function validateProfiles() {
-  const profiles = readProfiles();
-  return profiles.map((profile) => ({
-    id: profile.id,
-    items: (profile.items || []).map((item) => ({
-      id: item.id,
-      ...getItemStatus(item),
-      resolvedPath: getTarget(item) || item.url || ''
-    }))
-  }));
+  return core.validateProfiles(readProfiles());
 }
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function imageNameFromItem(item) {
-  if (item.processName) return String(item.processName);
-  const target = getTarget(item);
-  if (!target) return '';
-  return path.basename(target);
 }
 
 function isProcessRunning(imageName) {
@@ -236,55 +156,29 @@ function isProcessRunning(imageName) {
 }
 
 async function launch(item) {
-  if (!item || typeof item !== 'object') throw new Error('Некорректный элемент запуска');
-  if (item.enabled === false) return { ok: true, skipped: true, reason: 'disabled' };
+  const delayMs = core.launchDelayMs(item);
+  if (delayMs > 0) await sleep(delayMs);
 
-  if (item.delayMs) {
-    const ms = Math.max(0, Number(item.delayMs) || 0);
-    if (ms > 0) await sleep(ms);
-  }
+  const plan = core.planLaunch(item);
+  if (plan.action === 'skip') return { ok: true, skipped: true, reason: plan.reason };
 
-  if (item.type === 'url') {
-    if (!item.url) throw new Error('Для URL нужен параметр url');
-    await shell.openExternal(String(item.url));
+  if (plan.action === 'openExternal') {
+    await shell.openExternal(plan.url);
     return { ok: true };
   }
 
-  const target = getTarget(item);
-  if (!target) throw new Error('Не указан path');
-
-  const exists = fs.existsSync(target);
-  if (!exists && item.type !== 'command') {
-    throw new Error(`Файл или папка не найдены: ${target}`);
-  }
-
-  if (item.type === 'folder' || (exists && fs.statSync(target).isDirectory())) {
-    const errorMessage = await shell.openPath(target);
+  if (plan.action === 'openPath') {
+    const errorMessage = await shell.openPath(plan.target);
     if (errorMessage) throw new Error(errorMessage);
     return { ok: true };
   }
 
-  if (item.type === 'file') {
-    const errorMessage = await shell.openPath(target);
-    if (errorMessage) throw new Error(errorMessage);
-    return { ok: true };
-  }
-
-  if (item.skipIfRunning) {
-    const imageName = imageNameFromItem(item);
-    const running = await isProcessRunning(imageName);
+  if (plan.skipIfRunning) {
+    const running = await isProcessRunning(plan.imageName);
     if (running) return { ok: true, skipped: true, reason: 'already_running' };
   }
 
-  const child = spawn(target, normalizeArgs(item.args), {
-    detached: true,
-    stdio: 'ignore',
-    shell: item.type === 'command' && item.allowShell === true,
-    windowsHide: false
-  });
-
-  child.unref();
-  return { ok: true };
+  return core.spawnDetached(plan, spawn);
 }
 
 function findProfileAndItem(profileId, itemId) {
@@ -311,7 +205,7 @@ ipcMain.handle('profile:launch', async (_event, profileId) => {
       const result = await launch(item);
       results.push({ id: item.id, name: item.name, ok: true, skipped: Boolean(result.skipped), reason: result.reason || '' });
     } catch (error) {
-      results.push({ id: item.id, name: item.name, ok: false, error: error.message });
+      results.push({ id: item?.id, name: item?.name, ok: false, error: error.message });
     }
   }
   return results;

@@ -1,0 +1,13 @@
+{
+  "ok": false,
+  "error": {
+    "code": 2,
+    "kind": "bad_input",
+    "message": "строка 2: лишний end без subgraph"
+  },
+  "abi": {
+    "name": "mpl-json",
+    "version": "0.1"
+  },
+  "contract_version": 1
+}

@@ -1,0 +1,100 @@
+{
+  "contract_version": 1,
+  "mode": "stub-launch",
+  "validation": [
+    {
+      "id": "old",
+      "items": [
+        {
+          "id": "no-type",
+          "ok": true,
+          "kind": "app",
+          "issue": "",
+          "resolvedPath": "<EXAMPLES>/программа заглушка.bin"
+        },
+        {
+          "id": "app-on-folder",
+          "ok": true,
+          "kind": "folder",
+          "issue": "",
+          "resolvedPath": "<EXAMPLES>/Рабочая папка"
+        },
+        {
+          "id": "allowshell-string",
+          "ok": true,
+          "kind": "command",
+          "issue": "",
+          "resolvedPath": "startdeck-example-command"
+        }
+      ]
+    },
+    {
+      "id": "empty",
+      "items": []
+    }
+  ],
+  "launches": [
+    {
+      "profileId": "old",
+      "results": [
+        {
+          "id": "no-type",
+          "name": "Без type — считается программой",
+          "ok": true,
+          "skipped": false,
+          "reason": ""
+        },
+        {
+          "id": "app-on-folder",
+          "name": "Программа, путь которой оказался папкой",
+          "ok": true,
+          "skipped": false,
+          "reason": ""
+        },
+        {
+          "id": "allowshell-string",
+          "name": "allowShell строкой не включает shell",
+          "ok": true,
+          "skipped": false,
+          "reason": ""
+        }
+      ],
+      "requested": [
+        {
+          "api": "child_process.spawn (заглушка)",
+          "file": "<EXAMPLES>/программа заглушка.bin",
+          "args": [
+            "--первый аргумент",
+            "--второй"
+          ],
+          "options": {
+            "detached": true,
+            "stdio": "ignore",
+            "shell": false,
+            "windowsHide": false
+          }
+        },
+        {
+          "api": "shell.openPath",
+          "target": "<EXAMPLES>/Рабочая папка"
+        },
+        {
+          "api": "child_process.spawn (заглушка)",
+          "file": "startdeck-example-command",
+          "args": [],
+          "options": {
+            "detached": true,
+            "stdio": "ignore",
+            "shell": false,
+            "windowsHide": false
+          }
+        }
+      ]
+    },
+    {
+      "profileId": "empty",
+      "results": [],
+      "requested": []
+    }
+  ]
+}

@@ -1,0 +1,221 @@
+{
+  "contract_version": 1,
+  "source_log": "<input>/orchestra сессия.log",
+  "total_lines": 36,
+  "profile_lua_steps": 5,
+  "strategies": [
+    {
+      "strategy": 1,
+      "locks": 4,
+      "locked_successes": 1,
+      "plain_successes": 3,
+      "fails": 1,
+      "failure_overrides": 0,
+      "auto_unlocks": 0,
+      "first_line": 11,
+      "last_line": 31,
+      "protocols": {
+        "quic": 3,
+        "tls": 6
+      },
+      "targets": {
+        "203.0.113.7": 3,
+        "www.example.org": 4,
+        "пример.рф": 2
+      },
+      "profiles": {
+        "3": 6,
+        "5": 3
+      },
+      "score": 440
+    },
+    {
+      "strategy": 9,
+      "locks": 1,
+      "locked_successes": 0,
+      "plain_successes": 0,
+      "fails": 0,
+      "failure_overrides": 0,
+      "auto_unlocks": 0,
+      "first_line": 35,
+      "last_line": 35,
+      "protocols": {
+        "tls": 1
+      },
+      "targets": {
+        "api.example.org": 1
+      },
+      "profiles": {
+        "3": 1
+      },
+      "score": 100
+    },
+    {
+      "strategy": 2,
+      "locks": 1,
+      "locked_successes": 0,
+      "plain_successes": 1,
+      "fails": 1,
+      "failure_overrides": 1,
+      "auto_unlocks": 1,
+      "first_line": 22,
+      "last_line": 32,
+      "protocols": {
+        "quic": 1,
+        "tls": 4
+      },
+      "targets": {
+        "cdn.example.com": 1,
+        "video.example.net": 4
+      },
+      "profiles": {
+        "3": 4,
+        "5": 1
+      },
+      "score": -100
+    }
+  ],
+  "events": [
+    {
+      "line": 11,
+      "event": "lock",
+      "strategy": 1,
+      "protocol": "tls",
+      "target": "www.example.org",
+      "profile_id": 3,
+      "details": "rtt=110ms tries=3"
+    },
+    {
+      "line": 12,
+      "event": "success",
+      "strategy": 1,
+      "protocol": "tls",
+      "target": "www.example.org",
+      "profile_id": 3,
+      "details": "3/3"
+    },
+    {
+      "line": 13,
+      "event": "lock",
+      "strategy": 1,
+      "protocol": "tls",
+      "target": "www.example.org",
+      "profile_id": 3,
+      "details": "after 3 successes"
+    },
+    {
+      "line": 14,
+      "event": "locked_success",
+      "strategy": 1,
+      "protocol": "tls",
+      "target": "www.example.org",
+      "profile_id": 3,
+      "details": ""
+    },
+    {
+      "line": 17,
+      "event": "lock",
+      "strategy": 1,
+      "protocol": "tls",
+      "target": "пример.рф",
+      "profile_id": 3,
+      "details": "rtt=95ms tries=3"
+    },
+    {
+      "line": 18,
+      "event": "success",
+      "strategy": 1,
+      "protocol": "tls",
+      "target": "пример.рф",
+      "profile_id": 3,
+      "details": "3/3"
+    },
+    {
+      "line": 22,
+      "event": "lock",
+      "strategy": 2,
+      "protocol": "tls",
+      "target": "video.example.net",
+      "profile_id": 3,
+      "details": "rtt=140ms tries=3"
+    },
+    {
+      "line": 23,
+      "event": "fail",
+      "strategy": 2,
+      "protocol": "tls",
+      "target": "video.example.net",
+      "profile_id": 3,
+      "details": "#1/3"
+    },
+    {
+      "line": 24,
+      "event": "failure_override",
+      "strategy": 2,
+      "protocol": "tls",
+      "target": "video.example.net",
+      "profile_id": 3,
+      "details": "LUA: circular_quality: FAILURE overrides previous SUCCESS for strat 2"
+    },
+    {
+      "line": 25,
+      "event": "auto_unlock",
+      "strategy": 2,
+      "protocol": "tls",
+      "target": "video.example.net",
+      "profile_id": 3,
+      "details": "LUA: circular_quality: AUTO-UNLOCK strat=2 after 3 fails"
+    },
+    {
+      "line": 29,
+      "event": "lock",
+      "strategy": 1,
+      "protocol": "quic",
+      "target": "203.0.113.7",
+      "profile_id": 5,
+      "details": "rtt=60ms tries=2"
+    },
+    {
+      "line": 30,
+      "event": "success",
+      "strategy": 1,
+      "protocol": "quic",
+      "target": "203.0.113.7",
+      "profile_id": 5,
+      "details": "2/2"
+    },
+    {
+      "line": 31,
+      "event": "fail",
+      "strategy": 1,
+      "protocol": "quic",
+      "target": "203.0.113.7",
+      "profile_id": 5,
+      "details": "1/3"
+    },
+    {
+      "line": 32,
+      "event": "success",
+      "strategy": 2,
+      "protocol": "quic",
+      "target": "cdn.example.com",
+      "profile_id": 5,
+      "details": "2/2"
+    },
+    {
+      "line": 35,
+      "event": "lock",
+      "strategy": 9,
+      "protocol": "tls",
+      "target": "api.example.org",
+      "profile_id": 3,
+      "details": ""
+    }
+  ],
+  "generated_blocks": 5,
+  "notes": [
+    "Preset generation is best-effort: original blob file paths are not usually recoverable from debug log lines.",
+    "Use --base-preset to preserve lua-init, blob, wf and global options from a known working preset.",
+    "Generated --lua-desync lines are reconstructed from `profile N (noname) lua ...` definitions and LOCK/SUCCESS statistics."
+  ]
+}

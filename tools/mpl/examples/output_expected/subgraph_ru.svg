@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1295" height="260" viewBox="0 0 1295 260" role="img">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" /></marker>
+</defs>
+<style><![CDATA[
+svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}.canvas{fill:#ffffff}.group{fill:#f5faff;fill-opacity:.72;stroke:#5d8fc2;stroke-width:1.35;stroke-dasharray:7 5}.group-label{font-size:13px;fill:#14324f;font-weight:600}.node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}.node-alt{fill:#fbfdff}.node-decision{fill:#fff7df;stroke:#1f2937;stroke-width:1.45}.edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:square;stroke-linejoin:miter}.edge.thick{stroke-width:2.75}.edge.dotted{stroke-dasharray:6 6}.label-bg{fill:#ffffff;stroke:#7c8da3;stroke-width:.9}.text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}.edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}
+]]></style>
+<rect class="canvas" x="0" y="0" width="1295" height="260" />
+<g class="groups">
+<rect class="group" x="64.0" y="64.0" width="606.8" height="132.0" rx="16" />
+<text class="group-label" x="78.0" y="86.0">Core-слой</text>
+<rect class="group" x="770.8" y="64.0" width="459.8" height="132.0" rx="16" />
+<text class="group-label" x="784.8" y="86.0">Qt GUI</text>
+</g>
+<g class="edges">
+<path class="edge normal" d="M 260.0 141.0 L 328.0 141.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 444.0 141.0 L 512.0 141.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 966.8 141.0 L 1000.8 141.0 L 1000.8 129.0 L 1034.8 129.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 642.8 141.0 L 838.8 141.0 L 838.8 153.0 L 1034.8 153.0" marker-end="url(#arrow)" />
+</g>
+<g class="edge-labels">
+<rect class="label-bg" x="786.8" y="126.0" width="104.0" height="22" rx="7" /><text class="edge-label" x="838.8" y="137.0">SVG в памяти</text>
+</g>
+<g class="nodes">
+<rect class="node" x="144.0" y="116.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="328.0" y="116.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="512.0" y="116.0" width="130.8" height="50.0" rx="9" />
+<rect class="node" x="850.8" y="116.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="1034.8" y="116.0" width="167.8" height="50.0" rx="9" />
+</g>
+<g class="node-labels">
+<text class="text" x="202.0" y="141.0">Parser</text>
+<text class="text" x="386.0" y="141.0">AST JSON</text>
+<text class="text" x="577.4" y="141.0">SVG renderer</text>
+<text class="text" x="908.8" y="141.0">Редактор</text>
+<text class="text" x="1118.7" y="141.0">Визуальное превью</text>
+</g>
+</svg>

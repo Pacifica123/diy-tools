@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections import Counter
-from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -18,7 +17,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.domain.export import export_matches_json, export_ranking_csv, export_ranking_json, export_ranking_txt
+from app.domain.export import (
+    export_matches_json,
+    export_ranking_csv,
+    export_ranking_json,
+    export_ranking_txt,
+    export_summary,
+)
 from app.domain.models import TournamentState
 from app.domain.ranking import RankedItem, build_ranking
 from app.domain.scoring import apply_scores
@@ -116,22 +121,24 @@ class ResultWindow(QMainWindow):
         path = self._save_path("Экспорт TXT", "txt", "Text files (*.txt)")
         if path:
             export_ranking_txt(path, self.ranking)
-            QMessageBox.information(self, "Экспорт", f"Сохранено: {Path(path).name}")
+            QMessageBox.information(self, "Экспорт", export_summary(path, len(self.ranking), "Записано тайтлов"))
 
     def export_csv(self) -> None:
         path = self._save_path("Экспорт CSV", "csv", "CSV files (*.csv)")
         if path:
             export_ranking_csv(path, self.ranking)
-            QMessageBox.information(self, "Экспорт", f"Сохранено: {Path(path).name}")
+            QMessageBox.information(self, "Экспорт", export_summary(path, len(self.ranking), "Записано тайтлов"))
 
     def export_json(self) -> None:
         path = self._save_path("Экспорт JSON", "json", "JSON files (*.json)")
         if path:
             export_ranking_json(path, self.ranking)
-            QMessageBox.information(self, "Экспорт", f"Сохранено: {Path(path).name}")
+            QMessageBox.information(self, "Экспорт", export_summary(path, len(self.ranking), "Записано тайтлов"))
 
     def export_matches(self) -> None:
         path = self._save_path("Экспорт истории матчей", "json", "JSON files (*.json)")
         if path:
             export_matches_json(path, self.state.completed_matches)
-            QMessageBox.information(self, "Экспорт", f"Сохранено: {Path(path).name}")
+            QMessageBox.information(
+                self, "Экспорт", export_summary(path, len(self.state.completed_matches), "Записано матчей")
+            )

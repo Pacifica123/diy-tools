@@ -1,6 +1,6 @@
 {
   "name": "startdeck",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "private": true,
   "author": "StartDeck contributors",
   "description": "Private React + Electron profile launcher for Windows apps, folders, files, websites and commands",

@@ -11,3 +11,7 @@ class ParseError(AppError):
 
 class TournamentError(AppError):
     """Raised when tournament state transition is invalid."""
+
+
+class SaveFileError(AppError):
+    """Raised when a save/autosave file is missing, damaged, foreign or too new."""

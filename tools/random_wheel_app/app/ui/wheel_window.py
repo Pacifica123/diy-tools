@@ -15,9 +15,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.domain.export import export_history_csv, export_history_json, export_history_txt
+from app.domain.export import export_history_csv, export_history_json, export_history_txt, export_summary
 from app.domain.wheel import Segment, WheelEngine
-from app.storage.autosave import write_autosave
+from app.storage.autosave import AUTOSAVE_PATH, write_autosave
 from app.ui.wheel_widget import WheelWidget
 
 
@@ -195,7 +195,7 @@ class WheelWindow(QMainWindow):
 
     def save(self) -> None:
         write_autosave(self.engine.session)
-        QMessageBox.information(self, "Сохранение", "Сессия сохранена в autosave.")
+        QMessageBox.information(self, "Сохранение", f"Сессия сохранена в autosave:\n{AUTOSAVE_PATH}")
 
     def export_history(self) -> None:
         path, selected_filter = QFileDialog.getSaveFileName(
@@ -217,4 +217,4 @@ class WheelWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "Экспорт", f"Не удалось экспортировать историю:\n{exc}")
             return
-        QMessageBox.information(self, "Экспорт", "История экспортирована.")
+        QMessageBox.information(self, "Экспорт", export_summary(self.engine.session.history, path))

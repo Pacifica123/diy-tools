@@ -1,0 +1,274 @@
+{
+  "contract_version": 1,
+  "mode": "dry-run",
+  "launched": 0,
+  "summary": {
+    "profiles": 1,
+    "items": 8,
+    "ready": 7,
+    "disabled": 1,
+    "problems": 0
+  },
+  "config": {
+    "contract_version": 1,
+    "profiles": [
+      {
+        "id": "work",
+        "name": "Работа — пример",
+        "description": "Все пять типов элементов. Пути ведут в examples/input/fixture через %STARTDECK_EXAMPLES%.",
+        "items": [
+          {
+            "id": "app-stub",
+            "name": "Программа с аргументами",
+            "type": "app",
+            "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin",
+            "args": [
+              "--profile",
+              "Рабочий стол",
+              "a b; echo не-shell"
+            ],
+            "skipIfRunning": true,
+            "processName": "Заглушка.exe",
+            "delayMs": 250
+          },
+          {
+            "id": "folder",
+            "name": "Папка с пробелом и кириллицей",
+            "type": "folder",
+            "path": "%STARTDECK_EXAMPLES%/Рабочая папка"
+          },
+          {
+            "id": "file",
+            "name": "Файл через приложение по умолчанию",
+            "type": "file",
+            "path": "%STARTDECK_EXAMPLES%/Рабочая папка/заметки проекта.txt"
+          },
+          {
+            "id": "site",
+            "name": "Сайт",
+            "type": "url",
+            "url": "https://example.com/путь?q=1"
+          },
+          {
+            "id": "command-no-shell",
+            "name": "Команда без shell",
+            "type": "command",
+            "path": "startdeck-example-command",
+            "args": [
+              "--flag",
+              "значение с пробелом",
+              "$(echo не-выполнится)"
+            ]
+          },
+          {
+            "id": "command-shell",
+            "name": "Команда с явным allowShell",
+            "type": "command",
+            "path": "startdeck-example-command",
+            "args": [
+              "--flag"
+            ],
+            "allowShell": true
+          },
+          {
+            "id": "app-with-allowshell",
+            "name": "allowShell у программы игнорируется",
+            "type": "app",
+            "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin",
+            "allowShell": true
+          },
+          {
+            "id": "disabled",
+            "name": "Отключённый элемент",
+            "type": "app",
+            "path": "C:\\Path\\To\\Program.exe",
+            "enabled": false,
+            "delayMs": 5000
+          }
+        ]
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "id": "work",
+      "name": "Работа — пример",
+      "items": [
+        {
+          "id": "app-stub",
+          "name": "Программа с аргументами",
+          "status": {
+            "id": "app-stub",
+            "ok": true,
+            "kind": "app",
+            "issue": "",
+            "resolvedPath": "<EXAMPLES>/программа заглушка.bin"
+          },
+          "delayMs": 250,
+          "plan": {
+            "action": "spawn",
+            "file": "<EXAMPLES>/программа заглушка.bin",
+            "args": [
+              "--profile",
+              "Рабочий стол",
+              "a b; echo не-shell"
+            ],
+            "options": {
+              "detached": true,
+              "stdio": "ignore",
+              "shell": false,
+              "windowsHide": false
+            },
+            "skipIfRunning": true,
+            "imageName": "Заглушка.exe"
+          }
+        },
+        {
+          "id": "folder",
+          "name": "Папка с пробелом и кириллицей",
+          "status": {
+            "id": "folder",
+            "ok": true,
+            "kind": "folder",
+            "issue": "",
+            "resolvedPath": "<EXAMPLES>/Рабочая папка"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "openPath",
+            "target": "<EXAMPLES>/Рабочая папка"
+          }
+        },
+        {
+          "id": "file",
+          "name": "Файл через приложение по умолчанию",
+          "status": {
+            "id": "file",
+            "ok": true,
+            "kind": "file",
+            "issue": "",
+            "resolvedPath": "<EXAMPLES>/Рабочая папка/заметки проекта.txt"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "openPath",
+            "target": "<EXAMPLES>/Рабочая папка/заметки проекта.txt"
+          }
+        },
+        {
+          "id": "site",
+          "name": "Сайт",
+          "status": {
+            "id": "site",
+            "ok": true,
+            "kind": "url",
+            "issue": "",
+            "resolvedPath": "https://example.com/путь?q=1"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "openExternal",
+            "url": "https://example.com/путь?q=1"
+          }
+        },
+        {
+          "id": "command-no-shell",
+          "name": "Команда без shell",
+          "status": {
+            "id": "command-no-shell",
+            "ok": true,
+            "kind": "command",
+            "issue": "",
+            "resolvedPath": "startdeck-example-command"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "spawn",
+            "file": "startdeck-example-command",
+            "args": [
+              "--flag",
+              "значение с пробелом",
+              "$(echo не-выполнится)"
+            ],
+            "options": {
+              "detached": true,
+              "stdio": "ignore",
+              "shell": false,
+              "windowsHide": false
+            },
+            "skipIfRunning": false,
+            "imageName": "startdeck-example-command"
+          }
+        },
+        {
+          "id": "command-shell",
+          "name": "Команда с явным allowShell",
+          "status": {
+            "id": "command-shell",
+            "ok": true,
+            "kind": "command",
+            "issue": "",
+            "resolvedPath": "startdeck-example-command"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "spawn",
+            "file": "startdeck-example-command",
+            "args": [
+              "--flag"
+            ],
+            "options": {
+              "detached": true,
+              "stdio": "ignore",
+              "shell": true,
+              "windowsHide": false
+            },
+            "skipIfRunning": false,
+            "imageName": "startdeck-example-command"
+          }
+        },
+        {
+          "id": "app-with-allowshell",
+          "name": "allowShell у программы игнорируется",
+          "status": {
+            "id": "app-with-allowshell",
+            "ok": true,
+            "kind": "app",
+            "issue": "",
+            "resolvedPath": "<EXAMPLES>/программа заглушка.bin"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "spawn",
+            "file": "<EXAMPLES>/программа заглушка.bin",
+            "args": [],
+            "options": {
+              "detached": true,
+              "stdio": "ignore",
+              "shell": false,
+              "windowsHide": false
+            },
+            "skipIfRunning": false,
+            "imageName": "программа заглушка.bin"
+          }
+        },
+        {
+          "id": "disabled",
+          "name": "Отключённый элемент",
+          "status": {
+            "id": "disabled",
+            "ok": true,
+            "kind": "disabled",
+            "issue": "Отключено",
+            "resolvedPath": "C:\\Path\\To\\Program.exe"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "skip",
+            "reason": "disabled"
+          }
+        }
+      ]
+    }
+  ]
+}

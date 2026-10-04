@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Rust и Node: каталоги сборки и зависимостей
+target/
+node_modules/
+dist/
+coverage/
+
+# Локальные секреты и базы
+.env
+.env.*
+*.sqlite
+*.sqlite3
+*.db

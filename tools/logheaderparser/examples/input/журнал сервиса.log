@@ -1,0 +1,14 @@
+[2026-06-12 10:00:01] INFO worker=alpha-01 запуск задачи id=7f3c2a1b9d4e uuid=123e4567-e89b-12d3-a456-426614174000
+[2026-06-12 10:00:02] INFO worker=beta-02 запуск задачи id=0a1b2c3d4e5f uuid=987f6543-e21b-45d3-b456-556642440000
+[2026-06-12 10:00:03] WARN диск заполнен на 91% путь=/var/lib/service/data-01 свободно=512mb
+[2026-06-12 10:00:04] WARN диск заполнен на 93% путь=/var/lib/service/data-02 свободно=498mb
+
+10:00:05,120 ERROR "upload" failed url=https://example.org/api/v1/upload?part=3 code=503 retry_in=2.5s
+10:00:06,480 ERROR "upload" failed url=https://example.org/api/v1/upload?part=4 code=503 retry_in=5s
+2026-06-12T10:00:07Z DEBUG cache miss key=deadbeefcafe1234 file=C:\Temp\cache\entry.bin size=2048
+2026-06-12T10:00:08Z DEBUG cache miss key=0123456789abcdef file=C:\Temp\cache\other.bin size=4096
+2026-06-12T10:00:09Z INFO соединение с 10.0.0.12:8443 установлено за 35ms
+2026-06-12T10:00:10Z INFO соединение с 10.0.0.13:8443 установлено за 41ms
+2026-06-12T10:00:11Z INFO остановка сервиса; причина: сигнал SIGTERM
+одиночная строка без шаблона
+2026-06-12T10:00:12Z INFO request id=jkl012 user=45 path=/api/items latency=9ms

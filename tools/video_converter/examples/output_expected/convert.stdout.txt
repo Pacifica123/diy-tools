@@ -1,0 +1,13 @@
+skipped: <INPUT>/already done.mkv -> <INPUT>/already done.mp4 | выходной файл уже существует; для перезаписи укажите --overwrite
+created: <INPUT>/clip one.mkv -> <INPUT>/clip one.mp4 | ok
+created: <INPUT>/вложенная папка/nested clip.mkv -> <INPUT>/вложенная папка/nested clip.mp4 | ok
+created: <INPUT>/тестовое видео.mkv -> <INPUT>/тестовое видео.mp4 | ok
+Готово.
+Найдено: 4
+Создано: 3
+Пропущено: 1
+Удалено оригиналов: 0
+Ошибок: 0
+Dry-run: нет
+Результат: рядом с исходными файлами в <INPUT>
+Отчёт: <REPORT>

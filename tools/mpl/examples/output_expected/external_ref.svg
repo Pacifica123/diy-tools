@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1381" height="260" viewBox="0 0 1381 260" role="img">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" /></marker>
+</defs>
+<style><![CDATA[
+svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}.canvas{fill:#ffffff}.group{fill:#f5faff;fill-opacity:.72;stroke:#5d8fc2;stroke-width:1.35;stroke-dasharray:7 5}.group-label{font-size:13px;fill:#14324f;font-weight:600}.node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}.node-alt{fill:#fbfdff}.node-decision{fill:#fff7df;stroke:#1f2937;stroke-width:1.45}.edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:square;stroke-linejoin:miter}.edge.thick{stroke-width:2.75}.edge.dotted{stroke-dasharray:6 6}.label-bg{fill:#ffffff;stroke:#7c8da3;stroke-width:.9}.text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}.edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}
+]]></style>
+<rect class="canvas" x="0" y="0" width="1381" height="260" />
+<g class="groups">
+<rect class="group" x="510.8" y="64.0" width="474.6" height="132.0" rx="16" />
+<text class="group-label" x="524.8" y="86.0">Внутренняя группа</text>
+<rect class="group" x="1085.4" y="64.0" width="231.4" height="132.0" rx="16" />
+<text class="group-label" x="1099.4" y="86.0">Вторая группа</text>
+</g>
+<g class="edges">
+<path class="edge normal" d="M 590.8 129.0 L 392.8 129.0 L 392.8 77.0 L 194.8 77.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 410.8 89.0 L 500.8 89.0 L 500.8 141.0 L 590.8 141.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 743.8 153.0 L 777.8 153.0 L 777.8 141.0 L 811.8 141.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 957.4 141.0 L 1165.4 141.0" marker-end="url(#arrow)" />
+<path class="edge thick" d="M 1165.4 141.0 L 680.1 141.0 L 680.1 101.0 L 194.8 101.0" marker-end="url(#arrow)" />
+</g>
+<g class="edge-labels">
+<rect class="label-bg" x="732.8" y="126.0" width="90.0" height="22" rx="7" /><text class="edge-label" x="777.8" y="137.0">свой сосед</text>
+</g>
+<g class="nodes">
+<rect class="node" x="64.0" y="64.0" width="130.8" height="50.0" rx="9" />
+<rect class="node node-alt" x="294.8" y="72.0" width="116.0" height="34.0" /><ellipse class="node" cx="352.8" cy="72.0" rx="58.0" ry="8" /><ellipse class="node" cx="352.8" cy="106.0" rx="58.0" ry="8" />
+<rect class="node" x="590.8" y="116.0" width="153.0" height="50.0" rx="9" />
+<rect class="node" x="811.8" y="116.0" width="145.6" height="50.0" rx="9" />
+<rect class="node" x="1165.4" y="116.0" width="123.4" height="50.0" rx="9" />
+</g>
+<g class="node-labels">
+<text class="text" x="129.4" y="89.0">Внешний узел</text>
+<text class="text" x="352.8" y="89.0">Настройки</text>
+<text class="text" x="667.3" y="141.0">Внутренний узел</text>
+<text class="text" x="884.6" y="141.0">Сосед в группе</text>
+<text class="text" x="1227.1" y="141.0">Другой узел</text>
+</g>
+</svg>

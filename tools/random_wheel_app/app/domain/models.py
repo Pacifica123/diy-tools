@@ -7,6 +7,9 @@ from typing import Any, Literal
 
 WheelMode = Literal["equal", "weighted"]
 
+# Версия формата файла сохранения/autosave и JSON-экспорта. См. docs/CONTRACT.md.
+CONTRACT_VERSION = 1
+
 
 def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -114,24 +117,31 @@ class WheelSession:
     history: list[SpinRecord] = field(default_factory=list)
     created_at: str = field(default_factory=now_iso)
     updated_at: str = field(default_factory=now_iso)
+    # Сколько вращений уже записано за всю сессию (не сбрасывается очисткой истории).
+    spin_count: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "contract_version": CONTRACT_VERSION,
             "items": [item.to_dict() for item in self.items],
             "active_ids": list(self.active_ids),
             "options": self.options.to_dict(),
             "history": [record.to_dict() for record in self.history],
+            "spin_count": self.spin_count,
             "created_at": self.created_at,
             "updated_at": now_iso(),
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "WheelSession":
+        history = [SpinRecord.from_dict(raw) for raw in data.get("history", [])]
         return cls(
             items=[WheelItem.from_dict(raw) for raw in data.get("items", [])],
             active_ids=[int(x) for x in data.get("active_ids", [])],
             options=SpinOptions.from_dict(data.get("options", {})),
-            history=[SpinRecord.from_dict(raw) for raw in data.get("history", [])],
+            history=history,
+            # Файлы версии 0.1.0 не хранили счётчик: считаем по длине истории.
+            spin_count=int(data.get("spin_count", len(history))),
             created_at=str(data.get("created_at") or now_iso()),
             updated_at=str(data.get("updated_at") or now_iso()),
         )

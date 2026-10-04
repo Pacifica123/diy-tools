@@ -1,0 +1,127 @@
+{
+  "contract_version": 1,
+  "kind": "anime_rerank_tournament.matches",
+  "matches": [
+    {
+      "id": "match-1",
+      "round_number": 1,
+      "left_id": 3,
+      "right_id": null,
+      "winner_id": 3,
+      "loser_id": null,
+      "is_bye": true,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-2",
+      "round_number": 1,
+      "left_id": 8,
+      "right_id": 4,
+      "winner_id": 8,
+      "loser_id": 4,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-3",
+      "round_number": 1,
+      "left_id": 9,
+      "right_id": 7,
+      "winner_id": 9,
+      "loser_id": 7,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-4",
+      "round_number": 1,
+      "left_id": 1,
+      "right_id": 5,
+      "winner_id": 5,
+      "loser_id": 1,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-5",
+      "round_number": 1,
+      "left_id": 6,
+      "right_id": 2,
+      "winner_id": 6,
+      "loser_id": 2,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-6",
+      "round_number": 2,
+      "left_id": 8,
+      "right_id": null,
+      "winner_id": 8,
+      "loser_id": null,
+      "is_bye": true,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-7",
+      "round_number": 2,
+      "left_id": 3,
+      "right_id": 9,
+      "winner_id": 9,
+      "loser_id": 3,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-8",
+      "round_number": 2,
+      "left_id": 5,
+      "right_id": 6,
+      "winner_id": 6,
+      "loser_id": 5,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-9",
+      "round_number": 3,
+      "left_id": 9,
+      "right_id": null,
+      "winner_id": 9,
+      "loser_id": null,
+      "is_bye": true,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-10",
+      "round_number": 3,
+      "left_id": 8,
+      "right_id": 6,
+      "winner_id": 6,
+      "loser_id": 8,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    },
+    {
+      "id": "match-11",
+      "round_number": 4,
+      "left_id": 6,
+      "right_id": 9,
+      "winner_id": 9,
+      "loser_id": 6,
+      "is_bye": false,
+      "created_at": "<time>",
+      "resolved_at": "<time>"
+    }
+  ]
+}

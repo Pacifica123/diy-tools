@@ -1,6 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+where python >nul 2>nul
+if errorlevel 1 (
+  echo Не найден python. Установите Python 3.11 или новее и повторите запуск.
+  exit /b 9009
+)
 python main.py %*
 if errorlevel 1 (
   echo.

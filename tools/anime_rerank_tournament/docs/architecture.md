@@ -13,4 +13,8 @@ app/storage/                autosave и JSON-сохранение
 app/ui/                     PySide6-интерфейс
 ```
 
+Слои `app/domain`, `app/storage` и `app/utils` не импортируют PySide6 — их целиком проверяет `scripts/smoke_test.py`.
+
+Состояние (autosave) хранится вне капсулы: `~/.anime_rerank_tournament/autosave.json`. Формат файла — `docs/CONTRACT.md`.
+
 GUI не принимает решений о победителях, рейтинге и новых оценках. Он только отображает данные и передаёт действия пользователя в `TournamentEngine`.

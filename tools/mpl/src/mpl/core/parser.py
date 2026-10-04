@@ -10,9 +10,9 @@ _HEADER_RE = re.compile(r"^(graph|flowchart)\s+(TD|TB|BT|LR|RL)\s*$", re.IGNOREC
 _SUBGRAPH_RE = re.compile(r"^subgraph\s+(.+)$", re.IGNORECASE)
 _EDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"^(.+?)\s*(<-->|-->|---|-\.->|==>)\s*\|(.+?)\|\s*(.+)$"),
-    re.compile(r"^(.+?)\s*--\s*(.+?)\s*-->\s*(.+)$"),
-    re.compile(r"^(.+?)\s*-\.\s*(.+?)\s*\.->\s*(.+)$"),
-    re.compile(r"^(.+?)\s*==\s*(.+?)\s*==>\s*(.+)$"),
+    re.compile(r"^(.+?)\s*(?<![-<])--\s*(?![->])(.+?)\s*-->\s*(.+)$"),
+    re.compile(r"^(.+?)\s*-\.\s*(?!-)(.+?)\s*\.->\s*(.+)$"),
+    re.compile(r"^(.+?)\s*(?<!=)==\s*(?![=>])(.+?)\s*==>\s*(.+)$"),
     re.compile(r"^(.+?)\s*(<-->|-->|---|-\.->|==>)\s*(.+)$"),
 )
 
@@ -73,17 +73,17 @@ def parse_mermaid(source: str, options: ParserOptions | None = None) -> Diagram:
             diagram.warnings.append(f"строка {line_no}: инструкция пока пропущена: {statement}")
             continue
 
-        parsed_edge = _parse_edge(statement)
-        if parsed_edge is not None:
-            left, operator, label, right = parsed_edge
+        parsed_edges = _parse_edge_chain(statement)
+        if parsed_edges:
             current_group = group_stack[-1] if group_stack else None
-            source_node = _parse_edge_node(left, current_group, diagram)
-            target_node = _parse_edge_node(right, current_group, diagram)
-            if not _is_bare_group_reference(left, diagram):
-                diagram.add_node(source_node)
-            if not _is_bare_group_reference(right, diagram):
-                diagram.add_node(target_node)
-            diagram.add_edge(_edge_from_operator(source_node.id, target_node.id, operator, label))
+            for left, operator, label, right in parsed_edges:
+                source_node = _parse_edge_node(left, current_group, diagram)
+                target_node = _parse_edge_node(right, current_group, diagram)
+                if not _is_bare_group_reference(left, diagram):
+                    diagram.add_node(source_node)
+                if not _is_bare_group_reference(right, diagram):
+                    diagram.add_node(target_node)
+                diagram.add_edge(_edge_from_operator(source_node.id, target_node.id, operator, label))
             continue
 
         parsed_node = _parse_node(statement, group_stack[-1] if group_stack else None)
@@ -156,22 +156,75 @@ def _parse_group(raw: str, diagram: Diagram, parent: str | None) -> Group:
     return Group(id=node.id or f"group_{len(diagram.groups) + 1}", label=node.label or node.id, parent=parent)
 
 
-def _parse_edge(statement: str) -> tuple[str, str, str, str] | None:
+def _parse_edge_chain(statement: str) -> list[tuple[str, str, str, str]]:
+    """Split ``A --> B -- да --> C`` into consecutive edges.
+
+    Before 0.2.0 a chain was silently misread as one edge ``A -> C`` with the
+    label ``> B`` and the middle node was lost. Arrows are searched only
+    outside of brackets and quotes, so ``A[x --> y] --> B`` stays one edge.
+    """
+    nodes, links = _split_chain(statement, _mask_nested(statement))
+    return [(nodes[index], operator, label, nodes[index + 1]) for index, (operator, label) in enumerate(links)]
+
+
+def _split_chain(text: str, masked: str) -> tuple[list[str], list[tuple[str, str]]]:
+    found = _match_edge(masked)
+    if found is None:
+        return [text.strip()], []
+    left, operator, label, right = found
+    left_nodes, left_links = _split_chain(text[left[0]:left[1]], masked[left[0]:left[1]])
+    right_nodes, right_links = _split_chain(text[right[0]:right[1]], masked[right[0]:right[1]])
+    label_text = _clean_label(text[label[0]:label[1]]) if label is not None else ""
+    return left_nodes + right_nodes, left_links + [(operator, label_text)] + right_links
+
+
+def _match_edge(masked: str) -> tuple[tuple[int, int], str, tuple[int, int] | None, tuple[int, int]] | None:
     for index, pattern in enumerate(_EDGE_PATTERNS):
-        match = pattern.match(statement)
+        match = pattern.match(masked)
         if not match:
             continue
         if index in (1, 2, 3):
-            left, label, right = match.groups()
             operator = "-->" if index == 1 else "-.->" if index == 2 else "==>"
-            return left.strip(), operator, _clean_label(label), right.strip()
-        left, operator, *rest = match.groups()
-        if len(rest) == 2:
-            label, right = rest
-        else:
-            label, right = "", rest[0]
-        return left.strip(), operator, _clean_label(label), right.strip()
+            return match.span(1), operator, match.span(2), match.span(3)
+        if index == 0:
+            return match.span(1), match.group(2), match.span(3), match.span(4)
+        return match.span(1), match.group(2), None, match.span(3)
     return None
+
+
+def _mask_nested(text: str) -> str:
+    """Hide bracket and quote contents so that arrows inside labels are not links.
+
+    The result has the same length as ``text``; if brackets or quotes are not
+    balanced the text is returned unchanged (old tolerant behaviour).
+    """
+    closing = {"[": "]", "(": ")", "{": "}"}
+    result: list[str] = []
+    stack: list[str] = []
+    quote: str | None = None
+    for ch in text:
+        if quote:
+            result.append("_")
+            if ch == quote:
+                quote = None
+            continue
+        if ch == '"':
+            quote = ch
+            result.append("_")
+            continue
+        if ch in closing:
+            stack.append(closing[ch])
+            result.append("_")
+            continue
+        if stack:
+            if ch == stack[-1]:
+                stack.pop()
+            result.append("_")
+            continue
+        result.append(ch)
+    if stack or quote:
+        return text
+    return "".join(result)
 
 
 def _parse_edge_node(raw: str, group_id: str | None, diagram: Diagram) -> Node:

@@ -1,0 +1,72 @@
+{
+  "contract_version": 1,
+  "source_log": "<input>/sample_orchestra.log",
+  "total_lines": 10,
+  "profile_lua_steps": 0,
+  "strategies": [
+    {
+      "strategy": 12,
+      "locks": 1,
+      "locked_successes": 0,
+      "plain_successes": 0,
+      "fails": 0,
+      "failure_overrides": 0,
+      "auto_unlocks": 0,
+      "first_line": 4,
+      "last_line": 4,
+      "protocols": {
+        "tcp": 1
+      },
+      "targets": {
+        "example.org": 1
+      },
+      "profiles": {},
+      "score": 100
+    },
+    {
+      "strategy": 13,
+      "locks": 1,
+      "locked_successes": 0,
+      "plain_successes": 0,
+      "fails": 0,
+      "failure_overrides": 0,
+      "auto_unlocks": 0,
+      "first_line": 9,
+      "last_line": 9,
+      "protocols": {
+        "udp": 1
+      },
+      "targets": {
+        "video.example.net": 1
+      },
+      "profiles": {},
+      "score": 100
+    }
+  ],
+  "events": [
+    {
+      "line": 4,
+      "event": "lock",
+      "strategy": 12,
+      "protocol": "tcp",
+      "target": "example.org",
+      "profile_id": null,
+      "details": "rtt=110"
+    },
+    {
+      "line": 9,
+      "event": "lock",
+      "strategy": 13,
+      "protocol": "udp",
+      "target": "video.example.net",
+      "profile_id": null,
+      "details": "rtt=90"
+    }
+  ],
+  "generated_blocks": 2,
+  "notes": [
+    "Preset generation is best-effort: original blob file paths are not usually recoverable from debug log lines.",
+    "Use --base-preset to preserve lua-init, blob, wf and global options from a known working preset.",
+    "Generated --lua-desync lines are reconstructed from `profile N (noname) lua ...` definitions and LOCK/SUCCESS statistics."
+  ]
+}

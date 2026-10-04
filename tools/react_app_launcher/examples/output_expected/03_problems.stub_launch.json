@@ -1,0 +1,108 @@
+{
+  "contract_version": 1,
+  "mode": "stub-launch",
+  "validation": [
+    {
+      "id": "problems",
+      "items": [
+        {
+          "id": "missing-file",
+          "ok": false,
+          "kind": "app",
+          "issue": "Не найдено: <EXAMPLES>/нет такой программы.exe",
+          "resolvedPath": "<EXAMPLES>/нет такой программы.exe"
+        },
+        {
+          "id": "no-path",
+          "ok": false,
+          "kind": "folder",
+          "issue": "Не указан путь",
+          "resolvedPath": ""
+        },
+        {
+          "id": "no-url",
+          "ok": false,
+          "kind": "url",
+          "issue": "Не указан URL",
+          "resolvedPath": ""
+        },
+        {
+          "id": "unknown-type",
+          "ok": false,
+          "kind": "unknown",
+          "issue": "Неизвестный тип элемента: script",
+          "resolvedPath": "<EXAMPLES>/программа заглушка.bin"
+        },
+        {
+          "id": "unset-variable",
+          "ok": false,
+          "kind": "file",
+          "issue": "Не найдено: %STARTDECK_NO_SUCH_VARIABLE%/файл.txt",
+          "resolvedPath": "%STARTDECK_NO_SUCH_VARIABLE%/файл.txt"
+        },
+        {
+          "ok": false,
+          "kind": "unknown",
+          "issue": "Некорректный элемент",
+          "resolvedPath": ""
+        },
+        {
+          "id": "disabled-broken",
+          "ok": true,
+          "kind": "disabled",
+          "issue": "Отключено",
+          "resolvedPath": ""
+        }
+      ]
+    }
+  ],
+  "launches": [
+    {
+      "profileId": "problems",
+      "results": [
+        {
+          "id": "missing-file",
+          "name": "Несуществующий файл",
+          "ok": false,
+          "error": "Файл или папка не найдены: <EXAMPLES>/нет такой программы.exe"
+        },
+        {
+          "id": "no-path",
+          "name": "Путь не указан",
+          "ok": false,
+          "error": "Не указан path"
+        },
+        {
+          "id": "no-url",
+          "name": "URL не указан",
+          "ok": false,
+          "error": "Для URL нужен параметр url"
+        },
+        {
+          "id": "unknown-type",
+          "name": "Неизвестный тип",
+          "ok": false,
+          "error": "Неизвестный тип элемента: script"
+        },
+        {
+          "id": "unset-variable",
+          "name": "Переменная окружения не задана",
+          "ok": false,
+          "error": "Файл или папка не найдены: %STARTDECK_NO_SUCH_VARIABLE%/файл.txt"
+        },
+        {
+          "ok": false,
+          "error": "Некорректный элемент запуска"
+        },
+        {
+          "id": "disabled-broken",
+          "name": "Отключённый элемент не проверяется",
+          "ok": true,
+          "skipped": true,
+          "reason": "disabled"
+        }
+      ],
+      "requested": []
+    }
+  ]
+}

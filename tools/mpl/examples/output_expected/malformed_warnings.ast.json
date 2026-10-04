@@ -1,0 +1,57 @@
+{
+  "contract_version": 1,
+  "kind": "flowchart",
+  "direction": "TD",
+  "nodes": [
+    {
+      "id": "A",
+      "label": "Нет заголовка",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "B",
+      "label": "Лишний end ниже",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "C",
+      "label": "Внутри",
+      "shape": "rect",
+      "group": "Незакрытая_группа"
+    }
+  ],
+  "edges": [
+    {
+      "source": "A",
+      "target": "B",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "C",
+      "target": "A",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    }
+  ],
+  "groups": [
+    {
+      "id": "Незакрытая_группа",
+      "label": "Незакрытая группа",
+      "parent": null
+    }
+  ],
+  "warnings": [
+    "строка 2: лишний end без subgraph",
+    "строка 3: инструкция пока пропущена: class A highlighted",
+    "строка 4: не удалось разобрать строку",
+    "заголовок graph/flowchart не найден; использовано flowchart TD",
+    "есть незакрытые subgraph-блоки: Незакрытая_группа"
+  ]
+}

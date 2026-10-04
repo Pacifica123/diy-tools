@@ -1,0 +1,84 @@
+{
+  "contract_version": 1,
+  "kind": "graph",
+  "direction": "LR",
+  "nodes": [
+    {
+      "id": "P",
+      "label": "Parser",
+      "shape": "rect",
+      "group": "core"
+    },
+    {
+      "id": "A",
+      "label": "AST JSON",
+      "shape": "rect",
+      "group": "core"
+    },
+    {
+      "id": "R",
+      "label": "SVG renderer",
+      "shape": "rect",
+      "group": "core"
+    },
+    {
+      "id": "E",
+      "label": "Редактор",
+      "shape": "rect",
+      "group": "gui"
+    },
+    {
+      "id": "V",
+      "label": "Визуальное превью",
+      "shape": "rect",
+      "group": "gui"
+    }
+  ],
+  "edges": [
+    {
+      "source": "P",
+      "target": "A",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "A",
+      "target": "R",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "E",
+      "target": "V",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "R",
+      "target": "V",
+      "label": "SVG в памяти",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    }
+  ],
+  "groups": [
+    {
+      "id": "core",
+      "label": "Core-слой",
+      "parent": null
+    },
+    {
+      "id": "gui",
+      "label": "Qt GUI",
+      "parent": null
+    }
+  ],
+  "warnings": []
+}

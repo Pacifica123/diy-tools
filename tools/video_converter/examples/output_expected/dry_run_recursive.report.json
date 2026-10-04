@@ -1,0 +1,42 @@
+{
+  "contract_version": 1,
+  "summary": {
+    "found": 4,
+    "planned": 4,
+    "created": 0,
+    "skipped": 0,
+    "deleted": 0,
+    "errors": 0,
+    "dry_run": true
+  },
+  "results": [
+    {
+      "source": "<INPUT>/already done.mkv",
+      "output": "<OUTPUT>/already done.mp4",
+      "status": "planned",
+      "message": "dry-run",
+      "deleted_original": false
+    },
+    {
+      "source": "<INPUT>/clip one.mkv",
+      "output": "<OUTPUT>/clip one.mp4",
+      "status": "planned",
+      "message": "dry-run",
+      "deleted_original": false
+    },
+    {
+      "source": "<INPUT>/вложенная папка/nested clip.mkv",
+      "output": "<OUTPUT>/вложенная папка/nested clip.mp4",
+      "status": "planned",
+      "message": "dry-run",
+      "deleted_original": false
+    },
+    {
+      "source": "<INPUT>/тестовое видео.mkv",
+      "output": "<OUTPUT>/тестовое видео.mp4",
+      "status": "planned",
+      "message": "dry-run",
+      "deleted_original": false
+    }
+  ]
+}

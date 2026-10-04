@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import math
 from pathlib import Path
 
 from app.domain.models import WheelItem
@@ -42,15 +43,19 @@ def read_text_file(path: str | Path) -> str:
     return p.read_text(encoding="utf-8", errors="replace")
 
 
-def parse_numeric_value(raw: str) -> float | None:
+def _to_float(raw: str) -> float | None:
     text = raw.strip().replace(",", ".")
     if not text:
         return None
     try:
-        parsed = float(text)
+        return float(text)
     except ValueError:
         return None
-    if parsed <= 0:
+
+
+def parse_numeric_value(raw: str) -> float | None:
+    parsed = _to_float(raw)
+    if parsed is None or not math.isfinite(parsed) or parsed <= 0:
         return None
     return parsed
 
@@ -76,8 +81,11 @@ def parse_wheel_text(text: str) -> ParseResult:
 
         if ":" in line:
             maybe_label, maybe_value = line.rsplit(":", 1)
-            label = maybe_label.strip()
             value = parse_numeric_value(maybe_value)
+            # Если после ':' вообще не число (например, «Игра: подзаголовок»), двоеточие —
+            # часть названия: вариантом становится вся строка, текст не обрезается.
+            if value is not None or not maybe_value.strip() or _to_float(maybe_value) is not None:
+                label = maybe_label.strip()
             if value is None:
                 issues.append(ParseIssue(line_number, raw_line, "После ':' должно быть положительное число. Строка добавлена как вариант без значения."))
 

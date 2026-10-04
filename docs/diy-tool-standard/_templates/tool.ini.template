@@ -9,13 +9,14 @@ language = python
 maturity = M1
 flags = none
 short_ru = Одной фразой: что делает инструмент.
+# M3: changelog = CHANGELOG.md
 
 [philosophy]
 diy = true
 copyable_capsule = true
 modifiable = true
 rewrite_friendly = true
-standard_version = 0.1-devctl
+standard_version = 0.2-devctl
 
 [interfaces]
 core = planned
@@ -66,10 +67,14 @@ output_contract = README.md#выход
 state_dir = none
 config_location = capsule
 logs_contain_private_data = possible
+# M3: contract_doc = docs/CONTRACT.md
+# M3: contract_version = 1
 
 [checks]
 smoke = none
 manual = Запустить быстрый пример из README.
+# M3: regression = examples/output_expected
+# M3: tested_scope = Что покрывает автоматическая проверка и что нет.
 
 [notes]
 short = Что важно помнить будущему автору.

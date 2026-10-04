@@ -26,8 +26,22 @@ class Segment:
 class WheelEngine:
     def __init__(self, session: WheelSession):
         self.session = session
-        seed = session.options.random_seed
-        self.random = random.Random(seed if seed else None)
+        self.random = random.Random()
+        self._rng_for_next_spin()
+
+    def _rng_for_next_spin(self) -> random.Random:
+        """Генератор для очередного вращения.
+
+        При seed != 0 победитель вращения №n зависит только от seed, n и набора
+        активных вариантов: генератор пересоздаётся из пары (seed, n). Поэтому
+        результат не зависит от того, сколько случайных чисел потратила анимация
+        в GUI, и не повторяется с начала после загрузки autosave.
+        При seed == 0 используется обычный несидированный генератор.
+        """
+        seed = self.session.options.random_seed
+        if seed:
+            self.random = random.Random((int(seed) << 32) + self.session.spin_count)
+        return self.random
 
     @classmethod
     def new(cls, items: list[WheelItem], options: SpinOptions) -> "WheelEngine":
@@ -74,7 +88,16 @@ class WheelEngine:
         total = sum(weights)
         if total <= 0:
             raise ValueError("Суммарный вес должен быть больше нуля.")
-        selected = self.random.choices(active, weights=weights, k=1)[0]
+        # Только Random.random(): его последовательность для заданного seed
+        # гарантированно одинакова в разных версиях Python.
+        point = self._rng_for_next_spin().random() * total
+        selected = active[-1]
+        cumulative = 0.0
+        for candidate, candidate_weight in zip(active, weights):
+            cumulative += candidate_weight
+            if point < cumulative:
+                selected = candidate
+                break
         selected_weight = self.effective_weight(selected)
         return selected, selected_weight, total
 
@@ -88,6 +111,7 @@ class WheelEngine:
             probability=weight / total if total else 0,
         )
         self.session.history.append(record)
+        self.session.spin_count += 1
         if self.session.options.remove_winner and item.id in self.session.active_ids:
             self.session.active_ids.remove(item.id)
         self.session.updated_at = now_iso()

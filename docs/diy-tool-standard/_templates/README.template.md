@@ -80,6 +80,8 @@ python src/cli.py examples/input examples/output
 python scripts/smoke_test.py
 ```
 
+Для M3 здесь же честно перечислить, что автоматическая проверка покрывает и что нет (GUI, Windows, большие файлы…).
+
 или ручной сценарий:
 
 ```text
@@ -87,6 +89,14 @@ python scripts/smoke_test.py
 2. Запустить команду из раздела "Примеры".
 3. Сравнить результат с examples/output_expected.
 ```
+
+## Контракт
+
+Для M3: `docs/CONTRACT.md`, версия контракта `1` — что именно другая программа может считать стабильным.
+
+## История
+
+Для M3: `CHANGELOG.md`.
 
 ## Как изменить под себя
 

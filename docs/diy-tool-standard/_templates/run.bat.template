@@ -1,7 +1,13 @@
 @echo off
 setlocal
-cd /d "%~dp0"
-python src\cli.py %*
+rem Шаблон для CLI-инструмента. Текущая папка не меняется: относительные пути в аргументах
+rem считаются от места, где запущена команда. GUI-лаунчер может вместо этого сделать cd /d "%~dp0".
+where python >nul 2>nul
+if errorlevel 1 (
+  echo Ошибка: python не найден. Установите Python 3.11 или новее и добавьте его в PATH.
+  exit /b 9009
+)
+python "%~dp0src\cli.py" %*
 if errorlevel 1 (
   echo.
   echo Инструмент завершился с ошибкой. См. сообщение выше.

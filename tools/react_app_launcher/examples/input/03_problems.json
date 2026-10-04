@@ -1,0 +1,47 @@
+{
+  "profiles": [
+    {
+      "id": "problems",
+      "name": "Проблемные элементы",
+      "items": [
+        {
+          "id": "missing-file",
+          "name": "Несуществующий файл",
+          "type": "app",
+          "path": "%STARTDECK_EXAMPLES%/нет такой программы.exe"
+        },
+        {
+          "id": "no-path",
+          "name": "Путь не указан",
+          "type": "folder",
+          "path": ""
+        },
+        {
+          "id": "no-url",
+          "name": "URL не указан",
+          "type": "url"
+        },
+        {
+          "id": "unknown-type",
+          "name": "Неизвестный тип",
+          "type": "script",
+          "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin"
+        },
+        {
+          "id": "unset-variable",
+          "name": "Переменная окружения не задана",
+          "type": "file",
+          "path": "%STARTDECK_NO_SUCH_VARIABLE%/файл.txt"
+        },
+        "не объект",
+        {
+          "id": "disabled-broken",
+          "name": "Отключённый элемент не проверяется",
+          "type": "app",
+          "path": "",
+          "enabled": false
+        }
+      ]
+    }
+  ]
+}

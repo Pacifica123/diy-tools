@@ -1,0 +1,14 @@
+planned: <INPUT>/already done.mkv -> <OUTPUT>/already done.mp4 | dry-run
+planned: <INPUT>/clip one.mkv -> <OUTPUT>/clip one.mp4 | dry-run
+planned: <INPUT>/вложенная папка/nested clip.mkv -> <OUTPUT>/вложенная папка/nested clip.mp4 | dry-run
+planned: <INPUT>/тестовое видео.mkv -> <OUTPUT>/тестовое видео.mp4 | dry-run
+Готово.
+Найдено: 4
+Запланировано: 4
+Создано: 0
+Пропущено: 0
+Удалено оригиналов: 0
+Ошибок: 0
+Dry-run: да
+Результат: файлы не создавались (dry-run)
+Отчёт: <REPORT>

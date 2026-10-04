@@ -1,0 +1,92 @@
+{
+  "contract_version": 1,
+  "kind": "flowchart",
+  "direction": "LR",
+  "nodes": [
+    {
+      "id": "Outside",
+      "label": "Внешний узел",
+      "shape": "rect",
+      "group": null
+    },
+    {
+      "id": "Config",
+      "label": "Настройки",
+      "shape": "cylinder",
+      "group": null
+    },
+    {
+      "id": "Inside",
+      "label": "Внутренний узел",
+      "shape": "rect",
+      "group": "Inner"
+    },
+    {
+      "id": "Neighbor",
+      "label": "Сосед в группе",
+      "shape": "rect",
+      "group": "Inner"
+    },
+    {
+      "id": "Other",
+      "label": "Другой узел",
+      "shape": "rect",
+      "group": "Вторая_группа"
+    }
+  ],
+  "edges": [
+    {
+      "source": "Inside",
+      "target": "Outside",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Config",
+      "target": "Inside",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Inside",
+      "target": "Neighbor",
+      "label": "свой сосед",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Neighbor",
+      "target": "Other",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "normal"
+    },
+    {
+      "source": "Other",
+      "target": "Outside",
+      "label": "",
+      "directed": true,
+      "bidirectional": false,
+      "style": "thick"
+    }
+  ],
+  "groups": [
+    {
+      "id": "Inner",
+      "label": "Внутренняя группа",
+      "parent": null
+    },
+    {
+      "id": "Вторая_группа",
+      "label": "Вторая группа",
+      "parent": null
+    }
+  ],
+  "warnings": []
+}

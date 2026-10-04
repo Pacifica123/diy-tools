@@ -8,6 +8,16 @@ from typing import Any
 from app.domain.ranking import RankedItem
 from app.domain.models import Match
 
+# Version of the export file contract, see docs/CONTRACT.md.
+CONTRACT_VERSION = 1
+RANKING_KIND = "anime_rerank_tournament.ranking"
+MATCHES_KIND = "anime_rerank_tournament.matches"
+
+
+def export_summary(path: str | Path, count: int, what: str) -> str:
+    """Final message shown to the user after an export."""
+    return f"Готово.\n{what}: {count}\nОшибок: 0\nРезультат: {path}"
+
 
 def ranked_to_rows(ranking: list[RankedItem]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -47,7 +57,8 @@ def export_ranking_csv(path: str | Path, ranking: list[RankedItem]) -> None:
 
 
 def export_ranking_json(path: str | Path, ranking: list[RankedItem]) -> None:
-    Path(path).write_text(json.dumps(ranked_to_rows(ranking), ensure_ascii=False, indent=2), encoding="utf-8")
+    payload = {"contract_version": CONTRACT_VERSION, "kind": RANKING_KIND, "items": ranked_to_rows(ranking)}
+    Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def export_ranking_txt(path: str | Path, ranking: list[RankedItem]) -> None:
@@ -70,7 +81,9 @@ def export_ranking_txt(path: str | Path, ranking: list[RankedItem]) -> None:
 
 
 def export_matches_json(path: str | Path, matches: list[Match]) -> None:
-    Path(path).write_text(
-        json.dumps([match.to_dict() for match in matches], ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    payload = {
+        "contract_version": CONTRACT_VERSION,
+        "kind": MATCHES_KIND,
+        "matches": [match.to_dict() for match in matches],
+    }
+    Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -4,7 +4,7 @@ import csv
 import json
 from pathlib import Path
 
-from app.domain.models import SpinRecord
+from app.domain.models import CONTRACT_VERSION, SpinRecord
 
 
 def export_history_txt(records: list[SpinRecord], path: str | Path) -> None:
@@ -24,4 +24,13 @@ def export_history_csv(records: list[SpinRecord], path: str | Path) -> None:
 
 
 def export_history_json(records: list[SpinRecord], path: str | Path) -> None:
-    Path(path).write_text(json.dumps([record.to_dict() for record in records], ensure_ascii=False, indent=2), encoding="utf-8")
+    payload = {
+        "contract_version": CONTRACT_VERSION,
+        "records": [record.to_dict() for record in records],
+    }
+    Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def export_summary(records: list[SpinRecord], path: str | Path) -> str:
+    """Итог экспорта для показа пользователю (STANDARD §13)."""
+    return f"Готово.\nЭкспортировано записей: {len(records)}\nРезультат: {path}"

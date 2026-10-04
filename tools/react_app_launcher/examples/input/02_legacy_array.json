@@ -1,0 +1,31 @@
+[
+  {
+    "id": "old",
+    "name": "Старый формат: массив профилей без внешнего объекта",
+    "items": [
+      {
+        "id": "no-type",
+        "name": "Без type — считается программой",
+        "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin",
+        "args": "--первый аргумент\n\n  --второй  \n"
+      },
+      {
+        "id": "app-on-folder",
+        "name": "Программа, путь которой оказался папкой",
+        "type": "app",
+        "path": "%STARTDECK_EXAMPLES%/Рабочая папка"
+      },
+      {
+        "id": "allowshell-string",
+        "name": "allowShell строкой не включает shell",
+        "type": "command",
+        "path": "startdeck-example-command",
+        "allowShell": "true"
+      }
+    ]
+  },
+  {
+    "id": "empty",
+    "name": "Профиль без items"
+  }
+]

@@ -1,0 +1,137 @@
+{
+  "contract_version": 1,
+  "formatVersion": 1,
+  "source": "Большой документ с пробелами.md",
+  "maxBytes": 420,
+  "parts": [
+    {
+      "index": 1,
+      "file": "001_большой_документ_с_пробелами.md",
+      "title": "Большой документ с пробелами",
+      "sizeBytes": 318,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 2,
+      "file": "002_обзор_проекта.md",
+      "title": "Обзор проекта",
+      "sizeBytes": 277,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 3,
+      "file": "003_установка.md",
+      "title": "Установка",
+      "sizeBytes": 238,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 4,
+      "file": "004_код_с_решёткой_внутри.md",
+      "title": "Код с решёткой внутри",
+      "sizeBytes": 272,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 5,
+      "file": "005_блок_с_тильдами.md",
+      "title": "Блок с тильдами",
+      "sizeBytes": 258,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 6,
+      "file": "006_таблица.md",
+      "title": "Таблица",
+      "sizeBytes": 345,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 7,
+      "file": "007_цитата.md",
+      "title": "Цитата",
+      "sizeBytes": 373,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 8,
+      "file": "008_списки.md",
+      "title": "Списки",
+      "sizeBytes": 202,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 9,
+      "file": "009_длинная_секция.md",
+      "title": "Длинная секция",
+      "sizeBytes": 282,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 10,
+      "file": "010_длинная_секция.md",
+      "title": "Длинная секция",
+      "sizeBytes": 311,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 11,
+      "file": "011_длинная_секция.md",
+      "title": "Длинная секция",
+      "sizeBytes": 255,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 12,
+      "file": "012_длинная_секция.md",
+      "title": "Длинная секция",
+      "sizeBytes": 248,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 13,
+      "file": "013_длинная_секция_в_стиле_setext.md",
+      "title": "Длинная секция в стиле Setext",
+      "sizeBytes": 285,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 14,
+      "file": "014_длинная_секция_в_стиле_setext.md",
+      "title": "Длинная секция в стиле Setext",
+      "sizeBytes": 343,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 15,
+      "file": "015_длинная_секция_в_стиле_setext.md",
+      "title": "Длинная секция в стиле Setext",
+      "sizeBytes": 329,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 16,
+      "file": "016_html_и_отступы.md",
+      "title": "HTML и отступы",
+      "sizeBytes": 412,
+      "contextHeadingAdded": false,
+      "oversized": false
+    }
+  ],
+  "warnings": []
+}

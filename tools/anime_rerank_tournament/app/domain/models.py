@@ -128,9 +128,10 @@ class TournamentState:
     def to_dict(self, include_undo: bool = True) -> dict[str, Any]:
         data = {
             "items": [item.to_dict() for item in self.items],
-            "active_ids": self.active_ids,
-            "eliminated_ids": self.eliminated_ids,
-            "round_winner_ids": self.round_winner_ids,
+            # Copies, not references: undo snapshots must not change when the live lists do.
+            "active_ids": list(self.active_ids),
+            "eliminated_ids": list(self.eliminated_ids),
+            "round_winner_ids": list(self.round_winner_ids),
             "round_number": self.round_number,
             "current_matches": [match.to_dict() for match in self.current_matches],
             "completed_matches": [match.to_dict() for match in self.completed_matches],
@@ -141,7 +142,7 @@ class TournamentState:
             "updated_at": self.updated_at,
         }
         if include_undo:
-            data["undo_stack"] = self.undo_stack
+            data["undo_stack"] = list(self.undo_stack)
         return data
 
     @classmethod

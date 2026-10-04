@@ -1,0 +1,128 @@
+{
+  "contract_version": 1,
+  "mode": "dry-run",
+  "launched": 0,
+  "summary": {
+    "profiles": 2,
+    "items": 3,
+    "ready": 3,
+    "disabled": 0,
+    "problems": 0
+  },
+  "config": {
+    "contract_version": 1,
+    "profiles": [
+      {
+        "id": "old",
+        "name": "Старый формат: массив профилей без внешнего объекта",
+        "items": [
+          {
+            "id": "no-type",
+            "name": "Без type — считается программой",
+            "path": "%STARTDECK_EXAMPLES%/программа заглушка.bin",
+            "args": "--первый аргумент\n\n  --второй  \n"
+          },
+          {
+            "id": "app-on-folder",
+            "name": "Программа, путь которой оказался папкой",
+            "type": "app",
+            "path": "%STARTDECK_EXAMPLES%/Рабочая папка"
+          },
+          {
+            "id": "allowshell-string",
+            "name": "allowShell строкой не включает shell",
+            "type": "command",
+            "path": "startdeck-example-command",
+            "allowShell": "true"
+          }
+        ]
+      },
+      {
+        "id": "empty",
+        "name": "Профиль без items"
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "id": "old",
+      "name": "Старый формат: массив профилей без внешнего объекта",
+      "items": [
+        {
+          "id": "no-type",
+          "name": "Без type — считается программой",
+          "status": {
+            "id": "no-type",
+            "ok": true,
+            "kind": "app",
+            "issue": "",
+            "resolvedPath": "<EXAMPLES>/программа заглушка.bin"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "spawn",
+            "file": "<EXAMPLES>/программа заглушка.bin",
+            "args": [
+              "--первый аргумент",
+              "--второй"
+            ],
+            "options": {
+              "detached": true,
+              "stdio": "ignore",
+              "shell": false,
+              "windowsHide": false
+            },
+            "skipIfRunning": false,
+            "imageName": "программа заглушка.bin"
+          }
+        },
+        {
+          "id": "app-on-folder",
+          "name": "Программа, путь которой оказался папкой",
+          "status": {
+            "id": "app-on-folder",
+            "ok": true,
+            "kind": "folder",
+            "issue": "",
+            "resolvedPath": "<EXAMPLES>/Рабочая папка"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "openPath",
+            "target": "<EXAMPLES>/Рабочая папка"
+          }
+        },
+        {
+          "id": "allowshell-string",
+          "name": "allowShell строкой не включает shell",
+          "status": {
+            "id": "allowshell-string",
+            "ok": true,
+            "kind": "command",
+            "issue": "",
+            "resolvedPath": "startdeck-example-command"
+          },
+          "delayMs": 0,
+          "plan": {
+            "action": "spawn",
+            "file": "startdeck-example-command",
+            "args": [],
+            "options": {
+              "detached": true,
+              "stdio": "ignore",
+              "shell": false,
+              "windowsHide": false
+            },
+            "skipIfRunning": false,
+            "imageName": "startdeck-example-command"
+          }
+        }
+      ]
+    },
+    {
+      "id": "empty",
+      "name": "Профиль без items",
+      "items": []
+    }
+  ]
+}

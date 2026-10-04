@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1889" height="502" viewBox="0 0 1889 502" role="img">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" /></marker>
+</defs>
+<style><![CDATA[
+svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}.canvas{fill:#ffffff}.group{fill:#f5faff;fill-opacity:.72;stroke:#5d8fc2;stroke-width:1.35;stroke-dasharray:7 5}.group-label{font-size:13px;fill:#14324f;font-weight:600}.node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}.node-alt{fill:#fbfdff}.node-decision{fill:#fff7df;stroke:#1f2937;stroke-width:1.45}.edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:square;stroke-linejoin:miter}.edge.thick{stroke-width:2.75}.edge.dotted{stroke-dasharray:6 6}.label-bg{fill:#ffffff;stroke:#7c8da3;stroke-width:.9}.text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}.edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}
+]]></style>
+<rect class="canvas" x="0" y="0" width="1889" height="502" />
+<g class="groups">
+</g>
+<g class="edges">
+<path class="edge normal" d="M 1687.0 77.0 L 1626.7 77.0 L 1626.7 89.0 L 1566.4 89.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 1443.0 89.0 L 1385.6 89.0 L 1385.6 294.0 L 1328.2 294.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 1328.2 294.0 L 1385.6 294.0 L 1385.6 203.0 L 1443.0 203.0" />
+<path class="edge dotted" d="M 1443.0 167.0 L 1393.0 167.0 L 1393.0 89.0 L 1343.0 89.0" marker-end="url(#arrow)" />
+<path class="edge thick" d="M 1443.0 215.0 L 1385.6 215.0 L 1385.6 413.0 L 1328.2 413.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 1212.2 89.0 L 1112.2 89.0" marker-start="url(#arrow)" marker-end="url(#arrow)" />
+<path class="edge dotted" d="M 1212.2 413.0 L 1151.1 413.0 L 1151.1 175.0 L 1090.0 175.0" marker-end="url(#arrow)" />
+<path class="edge thick" d="M 954.0 175.0 L 904.0 175.0 L 904.0 89.0 L 854.0 89.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 718.0 89.0 L 668.0 89.0 L 668.0 115.0 L 618.0 115.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 276.2 97.0 L 981.6 97.0 L 981.6 89.0 L 1687.0 89.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 1212.2 175.0 L 744.2 175.0 L 744.2 97.0 L 276.2 97.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 1687.0 101.0 L 1637.0 101.0 L 1637.0 179.0 L 1587.0 179.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 1443.0 191.0 L 1385.6 191.0 L 1385.6 175.0 L 1328.2 175.0" marker-end="url(#arrow)" />
+</g>
+<g class="edge-labels">
+<rect class="label-bg" x="1116.6" y="273.0" width="69.0" height="22" rx="7" /><text class="edge-label" x="1151.1" y="284.0">пунктир</text>
+<rect class="label-bg" x="873.0" y="111.0" width="62.0" height="22" rx="7" /><text class="edge-label" x="904.0" y="122.0">жирная</text>
+<rect class="label-bg" x="623.0" y="81.0" width="90.0" height="22" rx="7" /><text class="edge-label" x="668.0" y="92.0">с подписью</text>
+<rect class="label-bg" x="1619.0" y="119.0" width="36.0" height="22" rx="7" /><text class="edge-label" x="1637.0" y="130.0">да</text>
+<rect class="label-bg" x="1365.1" y="162.0" width="41.0" height="22" rx="7" /><text class="edge-label" x="1385.6" y="173.0">нет</text>
+</g>
+<g class="nodes">
+<rect class="node" x="1687.0" y="64.0" width="138.2" height="50.0" rx="9" />
+<rect class="node" x="1443.0" y="64.0" width="123.4" height="50.0" rx="24" />
+<ellipse class="node" cx="1270.2" cy="294.0" rx="58.0" ry="58.0" />
+<polygon class="node-decision" points="1515.0,150.0 1587.0,191.0 1515.0,232.0 1443.0,191.0" />
+<rect class="node node-alt" x="1212.2" y="64.0" width="130.8" height="50.0" rx="5" /><line x1="1224.2" y1="64.0" x2="1224.2" y2="114.0" stroke="#1f2937" /><line x1="1331.0" y1="64.0" x2="1331.0" y2="114.0" stroke="#1f2937" />
+<rect class="node node-alt" x="1212.2" y="396.0" width="116.0" height="34.0" /><ellipse class="node" cx="1270.2" cy="396.0" rx="58.0" ry="8" /><ellipse class="node" cx="1270.2" cy="430.0" rx="58.0" ry="8" />
+<polygon class="node node-alt" points="970.0,64.0 1096.2,64.0 1112.2,89.0 1096.2,114.0 970.0,114.0 954.0,89.0" />
+<polygon class="node node-alt" points="970.0,150.0 1106.0,150.0 1074.0,200.0 938.0,200.0" />
+<polygon class="node node-alt" points="702.0,64.0 838.0,64.0 870.0,114.0 734.0,114.0" />
+<rect class="node" x="376.2" y="64.0" width="241.8" height="102.0" rx="9" />
+<rect class="node" x="64.0" y="64.0" width="212.2" height="66.0" rx="9" />
+<rect class="node" x="1212.2" y="150.0" width="116.0" height="50.0" rx="9" />
+</g>
+<g class="node-labels">
+<text class="text" x="1756.1" y="89.0">Прямоугольник</text>
+<text class="text" x="1504.7" y="89.0">Скруглённый</text>
+<text class="text" x="1270.2" y="294.0">Круг</text>
+<text class="text" x="1515.0" y="191.0">Ромб?</text>
+<text class="text" x="1277.6" y="89.0">Подпрограмма</text>
+<text class="text" x="1270.2" y="413.0">База</text>
+<text class="text" x="1033.1" y="89.0">Шестиугольник</text>
+<text class="text" x="1022.0" y="175.0">Вход</text>
+<text class="text" x="786.0" y="89.0">Выход</text>
+<text class="text" x="497.1" y="89.5">Очень длинная подпись узла,</text><text class="text" x="497.1" y="106.5">которая переносится на</text><text class="text" x="497.1" y="123.5">несколько строк</text><text class="text" x="497.1" y="140.5">и явный перенос</text>
+<text class="text" x="170.1" y="88.5">Текст в кавычках --&gt; не</text><text class="text" x="170.1" y="105.5">стрелка</text>
+<text class="text" x="1270.2" y="175.0">Bare</text>
+</g>
+</svg>

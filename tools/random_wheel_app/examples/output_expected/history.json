@@ -1,0 +1,77 @@
+{
+  "contract_version": 1,
+  "records": [
+    {
+      "item_id": 2,
+      "label": "весь день программирование (минимум 12 часов чисто разработки)",
+      "mode": "weighted",
+      "effective_weight": 20.0,
+      "total_weight": 37.5,
+      "probability": 0.5333333333333333,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 1,
+      "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+      "mode": "weighted",
+      "effective_weight": 10.0,
+      "total_weight": 37.5,
+      "probability": 0.26666666666666666,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 2,
+      "label": "весь день программирование (минимум 12 часов чисто разработки)",
+      "mode": "weighted",
+      "effective_weight": 20.0,
+      "total_weight": 37.5,
+      "probability": 0.5333333333333333,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 2,
+      "label": "весь день программирование (минимум 12 часов чисто разработки)",
+      "mode": "weighted",
+      "effective_weight": 20.0,
+      "total_weight": 37.5,
+      "probability": 0.5333333333333333,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 1,
+      "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+      "mode": "weighted",
+      "effective_weight": 10.0,
+      "total_weight": 37.5,
+      "probability": 0.26666666666666666,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 4,
+      "label": "день отдыха",
+      "mode": "weighted",
+      "effective_weight": 2.5,
+      "total_weight": 37.5,
+      "probability": 0.06666666666666667,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 1,
+      "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+      "mode": "weighted",
+      "effective_weight": 10.0,
+      "total_weight": 37.5,
+      "probability": 0.26666666666666666,
+      "created_at": "<TIMESTAMP>"
+    },
+    {
+      "item_id": 2,
+      "label": "весь день программирование (минимум 12 часов чисто разработки)",
+      "mode": "weighted",
+      "effective_weight": 20.0,
+      "total_weight": 37.5,
+      "probability": 0.5333333333333333,
+      "created_at": "<TIMESTAMP>"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+flowchart LR
+    Outside[Внешний узел]
+    Config[(Настройки)]
+    subgraph Inner[Внутренняя группа]
+        Inside[Внутренний узел]
+        Inside --> Outside
+        Config --> Inside
+        Inside -- свой сосед --> Neighbor[Сосед в группе]
+    end
+    subgraph Вторая группа
+        Other[Другой узел]
+    end
+    Neighbor --> Other
+    Other ==> Outside

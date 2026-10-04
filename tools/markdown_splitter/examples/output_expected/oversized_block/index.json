@@ -1,0 +1,52 @@
+{
+  "contract_version": 1,
+  "formatVersion": 1,
+  "source": "oversized_block.md",
+  "maxBytes": 300,
+  "parts": [
+    {
+      "index": 1,
+      "file": "001_неделимые_блоки.md",
+      "title": "Неделимые блоки",
+      "sizeBytes": 121,
+      "contextHeadingAdded": false,
+      "oversized": false
+    },
+    {
+      "index": 2,
+      "file": "002_большой_блок_кода.md",
+      "title": "Большой блок кода",
+      "sizeBytes": 954,
+      "contextHeadingAdded": false,
+      "oversized": true
+    },
+    {
+      "index": 3,
+      "file": "003_большой_блок_кода.md",
+      "title": "Большой блок кода",
+      "sizeBytes": 88,
+      "contextHeadingAdded": true,
+      "oversized": false
+    },
+    {
+      "index": 4,
+      "file": "004_большая_таблица.md",
+      "title": "Большая таблица",
+      "sizeBytes": 834,
+      "contextHeadingAdded": false,
+      "oversized": true
+    },
+    {
+      "index": 5,
+      "file": "005_хвост.md",
+      "title": "Хвост",
+      "sizeBytes": 65,
+      "contextHeadingAdded": false,
+      "oversized": false
+    }
+  ],
+  "warnings": [
+    "часть 2 имеет 954 байт > лимита 300: внутри есть неделимый Markdown-блок",
+    "часть 4 имеет 834 байт > лимита 300: внутри есть неделимый Markdown-блок"
+  ]
+}

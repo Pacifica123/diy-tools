@@ -1,0 +1,62 @@
+{
+  "items": [
+    {
+      "id": 1,
+      "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+      "value": 10.0,
+      "source_line": 1
+    },
+    {
+      "id": 2,
+      "label": "весь день программирование (минимум 12 часов чисто разработки)",
+      "value": 20.0,
+      "source_line": 2
+    },
+    {
+      "id": 3,
+      "label": "день чтения",
+      "value": 5.0,
+      "source_line": 3
+    },
+    {
+      "id": 4,
+      "label": "день отдыха",
+      "value": 2.5,
+      "source_line": 4
+    }
+  ],
+  "active_ids": [
+    3,
+    4
+  ],
+  "options": {
+    "mode": "weighted",
+    "spin_duration_ms": 4500,
+    "min_turns": 5,
+    "max_turns": 9,
+    "remove_winner": true,
+    "random_seed": 42
+  },
+  "history": [
+    {
+      "item_id": 2,
+      "label": "весь день программирование (минимум 12 часов чисто разработки)",
+      "mode": "weighted",
+      "effective_weight": 20.0,
+      "total_weight": 37.5,
+      "probability": 0.5333333333333333,
+      "created_at": "2026-10-04T17:49:21"
+    },
+    {
+      "item_id": 1,
+      "label": "весь день в шахматы (минимум 12 часов чисто игры)",
+      "mode": "weighted",
+      "effective_weight": 10.0,
+      "total_weight": 17.5,
+      "probability": 0.5714285714285714,
+      "created_at": "2026-10-04T17:49:21"
+    }
+  ],
+  "created_at": "2026-10-04T17:49:21",
+  "updated_at": "2026-10-04T17:49:21"
+}

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="985" height="822" viewBox="0 0 985 822" role="img">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8.8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937" /></marker>
+</defs>
+<style><![CDATA[
+svg{background:#ffffff;font-family:Arial,'DejaVu Sans',sans-serif}.canvas{fill:#ffffff}.group{fill:#f5faff;fill-opacity:.72;stroke:#5d8fc2;stroke-width:1.35;stroke-dasharray:7 5}.group-label{font-size:13px;fill:#14324f;font-weight:600}.node{fill:#ffffff;stroke:#1f2937;stroke-width:1.45}.node-alt{fill:#fbfdff}.node-decision{fill:#fff7df;stroke:#1f2937;stroke-width:1.45}.edge{fill:none;stroke:#334155;stroke-width:1.55;stroke-linecap:square;stroke-linejoin:miter}.edge.thick{stroke-width:2.75}.edge.dotted{stroke-dasharray:6 6}.label-bg{fill:#ffffff;stroke:#7c8da3;stroke-width:.9}.text{font-size:14px;fill:#111827;text-anchor:middle;dominant-baseline:middle}.edge-label{font-size:12px;fill:#111827;text-anchor:middle;dominant-baseline:middle}
+]]></style>
+<rect class="canvas" x="0" y="0" width="985" height="822" />
+<g class="groups">
+</g>
+<g class="edges">
+<path class="edge normal" d="M 90.3 114.0 L 90.3 165.0 L 122.0 165.0 L 122.0 216.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 197.6 114.0 L 197.6 165.0 L 711.2 165.0 L 711.2 216.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 212.9 114.0 L 212.9 165.0 L 863.2 165.0 L 863.2 216.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 105.6 114.0 L 105.6 212.0 L 122.0 212.0 L 122.0 310.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 120.9 114.0 L 120.9 212.0 L 297.1 212.0 L 297.1 310.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 136.3 114.0 L 136.3 165.0 L 318.4 165.0 L 318.4 216.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 151.6 114.0 L 151.6 212.0 L 481.5 212.0 L 481.5 310.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 166.9 114.0 L 166.9 165.0 L 537.0 165.0 L 537.0 216.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 182.3 114.0 L 182.3 212.0 L 692.7 212.0 L 692.7 310.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 537.0 266.0 L 537.0 363.0 L 159.1 363.0 L 159.1 460.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 318.4 266.0 L 318.4 363.0 L 135.1 363.0 L 135.1 460.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 135.1 542.0 L 135.1 592.0 L 122.0 592.0 L 122.0 642.0" marker-end="url(#arrow)" />
+<path class="edge normal" d="M 159.1 460.0 L 159.1 410.0 L 273.1 410.0 L 273.1 360.0" marker-end="url(#arrow)" />
+<path class="edge dotted" d="M 122.0 642.0 L 122.0 378.0 L 151.6 378.0 L 151.6 114.0" marker-end="url(#arrow)" />
+</g>
+<g class="edge-labels">
+<rect class="label-bg" x="306.6" y="342.0" width="83.0" height="22" rx="7" /><text class="edge-label" x="348.1" y="353.0">запускает</text>
+<rect class="label-bg" x="192.2" y="342.0" width="69.0" height="22" rx="7" /><text class="edge-label" x="226.8" y="353.0">эталоны</text>
+<rect class="label-bg" x="110.6" y="571.0" width="36.0" height="22" rx="7" /><text class="edge-label" x="128.6" y="582.0">да</text>
+<rect class="label-bg" x="167.6" y="413.0" width="97.0" height="22" rx="7" /><text class="edge-label" x="216.1" y="424.0">нет, чинить</text>
+<rect class="label-bg" x="70.8" y="381.0" width="132.0" height="22" rx="7" /><text class="edge-label" x="136.8" y="392.0">следующая версия</text>
+</g>
+<g class="nodes">
+<rect class="node" x="64.0" y="64.0" width="175.2" height="50.0" rx="9" />
+<rect class="node" x="64.0" y="216.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="653.2" y="216.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="805.2" y="216.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="64.0" y="310.0" width="116.0" height="50.0" rx="9" />
+<rect class="node" x="216.0" y="310.0" width="138.2" height="50.0" rx="9" />
+<rect class="node" x="216.0" y="216.0" width="204.8" height="50.0" rx="9" />
+<rect class="node" x="390.2" y="310.0" width="182.6" height="50.0" rx="9" />
+<rect class="node" x="456.8" y="216.0" width="160.4" height="50.0" rx="9" />
+<rect class="node" x="608.8" y="310.0" width="167.8" height="50.0" rx="9" />
+<polygon class="node-decision" points="147.1,460.0 230.2,501.0 147.1,542.0 64.0,501.0" />
+<ellipse class="node" cx="122.0" cy="700.0" rx="58.0" ry="58.0" />
+</g>
+<g class="node-labels">
+<text class="text" x="151.6" y="89.0">Полка инструментов</text>
+<text class="text" x="122.0" y="241.0">README.md</text>
+<text class="text" x="711.2" y="241.0">tool.ini</text>
+<text class="text" x="863.2" y="241.0">run.bat</text>
+<text class="text" x="122.0" y="335.0">run.sh</text>
+<text class="text" x="285.1" y="335.0">Исходники src</text>
+<text class="text" x="318.4" y="241.0">Примеры входа и выхода</text>
+<text class="text" x="481.5" y="335.0">Документы контракта</text>
+<text class="text" x="537.0" y="241.0">Скрипты проверки</text>
+<text class="text" x="692.7" y="335.0">История изменений</text>
+<text class="text" x="147.1" y="501.0">Smoke прошёл?</text>
+<text class="text" x="122.0" y="700.0">Готово</text>
+</g>
+</svg>

@@ -1,0 +1,16 @@
+line	event	strategy	protocol	target	profile_id	details
+11	lock	1	tls	www.example.org	3	rtt=110ms tries=3
+12	success	1	tls	www.example.org	3	3/3
+13	lock	1	tls	www.example.org	3	after 3 successes
+14	locked_success	1	tls	www.example.org	3	
+17	lock	1	tls	пример.рф	3	rtt=95ms tries=3
+18	success	1	tls	пример.рф	3	3/3
+22	lock	2	tls	video.example.net	3	rtt=140ms tries=3
+23	fail	2	tls	video.example.net	3	#1/3
+24	failure_override	2	tls	video.example.net	3	LUA: circular_quality: FAILURE overrides previous SUCCESS for strat 2
+25	auto_unlock	2	tls	video.example.net	3	LUA: circular_quality: AUTO-UNLOCK strat=2 after 3 fails
+29	lock	1	quic	203.0.113.7	5	rtt=60ms tries=2
+30	success	1	quic	203.0.113.7	5	2/2
+31	fail	1	quic	203.0.113.7	5	1/3
+32	success	2	quic	cdn.example.com	5	2/2
+35	lock	9	tls	api.example.org	3	
